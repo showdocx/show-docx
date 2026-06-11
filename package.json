@@ -1,0 +1,197 @@
+{
+  "name": "show-docx",
+  "displayName": "ShowDocx",
+  "description": "A high-fidelity, theme-aware DOCX viewer for Visual Studio Code.",
+  "version": "1.0.0",
+  "publisher": "showdocx",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/showdocx/show-docx.git"
+  },
+  "homepage": "https://github.com/showdocx/show-docx#readme",
+  "bugs": {
+    "url": "https://github.com/showdocx/show-docx/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "docx",
+    "word",
+    "document",
+    "viewer",
+    "preview"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "showDocx.docxViewer",
+        "displayName": "DOCX Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.docx"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "showDocx.openWith",
+        "title": "Open with ShowDocx"
+      },
+      {
+        "command": "showDocx.exportHtml",
+        "title": "ShowDocx: Export as HTML",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.zoomIn",
+        "title": "ShowDocx: Zoom In",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.zoomOut",
+        "title": "ShowDocx: Zoom Out",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.zoomReset",
+        "title": "ShowDocx: Reset Zoom",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.toggleMode",
+        "title": "ShowDocx: Toggle Visual/Text Mode",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "showDocx.openWith",
+          "when": "resourceExtname == .docx",
+          "group": "navigation@20"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "showDocx.exportHtml",
+          "when": "activeCustomEditorId == showDocx.docxViewer",
+          "group": "navigation@10"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "showDocx.zoomIn",
+        "key": "ctrl+=",
+        "mac": "cmd+=",
+        "when": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.zoomOut",
+        "key": "ctrl+-",
+        "mac": "cmd+-",
+        "when": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.zoomReset",
+        "key": "ctrl+0",
+        "mac": "cmd+0",
+        "when": "activeCustomEditorId == showDocx.docxViewer"
+      }
+    ],
+    "configuration": {
+      "title": "ShowDocx",
+      "properties": {
+        "showDocx.defaultMode": {
+          "type": "string",
+          "default": "visual",
+          "enum": [
+            "visual",
+            "text"
+          ],
+          "enumDescriptions": [
+            "Preserve the Word page layout.",
+            "Show clean, theme-aware semantic HTML."
+          ],
+          "description": "Default rendering mode."
+        },
+        "showDocx.defaultZoom": {
+          "type": "number",
+          "default": 100,
+          "minimum": 25,
+          "maximum": 400,
+          "description": "Default zoom level in percent."
+        },
+        "showDocx.maxFileSizeMb": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 500,
+          "description": "Maximum DOCX file size that ShowDocx will open."
+        },
+        "showDocx.autoReload": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically reload the preview when the DOCX file changes on disk."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node ./esbuild.mjs",
+    "watch": "node ./esbuild.mjs --watch",
+    "check-types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "lint": "eslint src webview-src test scripts",
+    "compile-tests": "tsc -p tsconfig.test.json",
+    "test:unit": "npm run compile-tests && mocha \"dist-test/test/unit/**/*.test.js\"",
+    "test:integration": "npm run build && npm run compile-tests && node ./scripts/run-tests.mjs",
+    "test:webview": "npm run build && playwright test",
+    "test": "npm run test:unit && npm run test:integration",
+    "verify": "npm run lint && npm run check-types && npm run test:unit && npm run test:integration && npm run test:webview",
+    "generate:fixtures": "node ./scripts/generate-fixtures.mjs",
+    "verify:package-files": "node ./scripts/verify-package-files.mjs",
+    "package": "npm run build && npm run verify:package-files && vsce package --no-dependencies",
+    "postinstall": "patch-package"
+  },
+  "dependencies": {
+    "@vscode/codicons": "^0.0.44",
+    "docx-preview": "^0.3.7",
+    "dompurify": "^3.3.1",
+    "mammoth": "^1.12.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.19.25",
+    "@types/vscode": "1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.61.0",
+    "@typescript-eslint/parser": "^8.61.0",
+    "@playwright/test": "^1.60.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^3.9.2",
+    "docx": "^9.7.1",
+    "esbuild": "^0.28.0",
+    "eslint": "^9.39.1",
+    "glob": "^13.0.0",
+    "mocha": "^11.3.0",
+    "patch-package": "^8.0.1",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "diff": "8.0.3",
+    "serialize-javascript": "7.0.5"
+  }
+}

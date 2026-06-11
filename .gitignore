@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-test/
+playwright-report/
+test-results/
+*.vsix
+*.log
+.DS_Store
+.vscode-test/
+implementation_plan.md
+scratch/

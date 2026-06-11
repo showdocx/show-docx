@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShowDocx asset renderer</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      min-width: 100%;
+      min-height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    img {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <img id="asset" alt="">
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const asset = params.get('asset') === 'preview' ? 'viewer-preview.svg' : 'banner.svg';
+    document.getElementById('asset').src = `/media/${asset}`;
+  </script>
+</body>
+</html>

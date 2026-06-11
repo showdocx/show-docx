@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShowDocx Webview Harness</title>
+  <link rel="stylesheet" href="/dist/webview/main.css">
+  <style>
+    :root {
+      --vscode-editor-background: #14161a;
+      --vscode-editor-foreground: #e8e8e8;
+      --vscode-descriptionForeground: #a5a5a5;
+      --vscode-panel-border: #34363b;
+      --vscode-titleBar-activeBackground: #202020;
+      --vscode-titleBar-activeForeground: #f0f0f0;
+      --vscode-button-background: #0e639c;
+      --vscode-button-foreground: #ffffff;
+      --vscode-button-hoverBackground: #1177bb;
+      --vscode-button-secondaryBackground: #303030;
+      --vscode-button-secondaryForeground: #e5e5e5;
+      --vscode-toolbar-hoverBackground: #3c3c3c;
+      --vscode-focusBorder: #007fd4;
+      --vscode-scrollbarSlider-background: #79797966;
+      --vscode-scrollbarSlider-hoverBackground: #646464b3;
+      --vscode-widget-shadow: #00000066;
+      --vscode-errorForeground: #f48771;
+      --vscode-progressBar-background: #0e70c0;
+      --vscode-font-family: "Segoe UI", system-ui, sans-serif;
+      --vscode-font-size: 13px;
+      --vscode-editor-font-family: "Cascadia Code", Consolas, monospace;
+      --vscode-textLink-foreground: #4daafc;
+      --vscode-textLink-activeForeground: #79c0ff;
+      --vscode-editorWidget-background: #252526;
+      --vscode-charts-blue: #3794ff;
+    }
+  </style>
+  <script>
+    let persistedState;
+    const testState = {
+      messages: [],
+      printCount: 0
+    };
+    window.__showDocxTest = testState;
+    window.print = () => {
+      testState.printCount += 1;
+    };
+    window.acquireVsCodeApi = () => ({
+      getState: () => persistedState,
+      setState: (state) => {
+        persistedState = state;
+      },
+      postMessage: async (message) => {
+        testState.messages.push(message);
+        if (message.type !== 'ready') {
+          return;
+        }
+        const params = new URLSearchParams(window.location.search);
+        const fixture = params.get('fixture') || 'simple.docx';
+        const response = await fetch(`/test/fixtures/${fixture}`);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const settings = {
+          defaultMode: params.get('mode') === 'text' ? 'text' : 'visual',
+          defaultZoom: 100,
+          maxFileSizeMb: 100,
+          autoReload: true
+        };
+        const meta = {
+          transferId: 1,
+          fileName: fixture,
+          fileSize: bytes.byteLength,
+          reload: false,
+          settings
+        };
+
+        if (params.get('transfer') === 'chunks') {
+          const chunkSize = 1024;
+          const totalChunks = Math.ceil(bytes.byteLength / chunkSize);
+          dispatch({
+            type: 'documentStart',
+            ...meta,
+            totalChunks
+          });
+          for (let index = 0; index < totalChunks; index += 1) {
+            dispatch({
+              type: 'documentChunk',
+              transferId: 1,
+              index,
+              data: encodeBase64(bytes.subarray(index * chunkSize, (index + 1) * chunkSize))
+            });
+          }
+          dispatch({ type: 'documentEnd', transferId: 1 });
+          return;
+        }
+
+        dispatch({
+          type: 'document',
+          ...meta,
+          data: encodeBase64(bytes)
+        });
+      }
+    });
+
+    function dispatch(data) {
+      window.dispatchEvent(new MessageEvent('message', { data }));
+    }
+
+    function encodeBase64(bytes) {
+      let binary = '';
+      const stride = 0x8000;
+      for (let offset = 0; offset < bytes.length; offset += stride) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + stride));
+      }
+      return btoa(binary);
+    }
+  </script>
+</head>
+<body>
+  <div id="app" class="showdocx-app">
+    <header class="showdocx-toolbar" role="toolbar" aria-label="Document viewer controls">
+      <div class="toolbar-file">
+        <span class="codicon codicon-file-word" aria-hidden="true"></span>
+        <span id="file-name" class="file-name">DOCX document</span>
+        <span id="file-size" class="file-size"></span>
+      </div>
+      <div class="toolbar-group mode-switcher" aria-label="Rendering mode">
+        <button id="mode-visual" class="toolbar-button mode-button" type="button" aria-pressed="true">
+          <span class="codicon codicon-preview"></span><span>Visual</span>
+        </button>
+        <button id="mode-text" class="toolbar-button mode-button" type="button" aria-pressed="false">
+          <span class="codicon codicon-list-tree"></span><span>Text</span>
+        </button>
+      </div>
+      <div class="toolbar-spacer"></div>
+      <button id="warnings-button" class="toolbar-button icon-button hidden" type="button" title="Rendering warnings" aria-label="Show rendering warnings">
+        <span class="codicon codicon-warning"></span><span id="warning-count"></span>
+      </button>
+      <button id="print-button" class="toolbar-button" type="button" title="Print document">
+        <span class="codicon codicon-printer"></span><span>Print</span>
+      </button>
+      <button id="export-button" class="toolbar-button" type="button" title="Export semantic HTML">
+        <span class="codicon codicon-export"></span><span>HTML</span>
+      </button>
+      <div class="toolbar-group zoom-controls" aria-label="Zoom controls">
+        <button id="zoom-out" class="toolbar-button icon-button" type="button" title="Zoom out" aria-label="Zoom out">
+          <span class="codicon codicon-zoom-out"></span>
+        </button>
+        <button id="zoom-reset" class="zoom-value" type="button" title="Reset zoom">100%</button>
+        <button id="zoom-in" class="toolbar-button icon-button" type="button" title="Zoom in" aria-label="Zoom in">
+          <span class="codicon codicon-zoom-in"></span>
+        </button>
+      </div>
+    </header>
+    <aside id="warnings-panel" class="warnings-panel hidden" aria-live="polite"></aside>
+    <main id="viewport" class="showdocx-viewport">
+      <div id="loading" class="showdocx-loading">
+        <div class="spinner" aria-hidden="true"></div>
+        <div id="loading-label">Waiting for document...</div>
+        <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+      </div>
+      <section id="error-state" class="showdocx-error hidden" role="alert">
+        <span class="codicon codicon-error error-icon" aria-hidden="true"></span>
+        <h1>Unable to preview this document</h1>
+        <p id="error-message"></p>
+        <button id="retry-button" class="primary-button" type="button">Try again</button>
+      </section>
+      <div id="zoom-frame" class="zoom-frame hidden">
+        <div id="zoom-surface" class="zoom-surface">
+          <div id="visual-container" class="render-container visual-container"></div>
+          <article id="text-container" class="render-container showdocx-text hidden"></article>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="/dist/webview/main.js"></script>
+</body>
+</html>

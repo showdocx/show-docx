@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title description">
+  <title id="title">ShowDocx viewer preview</title>
+  <desc id="description">A dark Visual Studio Code style window with the ShowDocx toolbar and a rendered document</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity=".36"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="680" rx="26" fill="#0b1020"/>
+  <g transform="translate(48 42)" filter="url(#shadow)">
+    <rect width="1104" height="596" rx="14" fill="#181818"/>
+    <rect width="1104" height="46" rx="14" fill="#252526"/>
+    <rect y="34" width="1104" height="12" fill="#252526"/>
+    <circle cx="24" cy="23" r="6" fill="#ff5f57"/>
+    <circle cx="44" cy="23" r="6" fill="#febc2e"/>
+    <circle cx="64" cy="23" r="6" fill="#28c840"/>
+    <text x="552" y="29" text-anchor="middle" fill="#d7d7d7" font-family="Segoe UI, Arial" font-size="14">simple.docx - ShowDocx</text>
+    <rect y="46" width="1104" height="50" fill="#202020"/>
+    <path d="M22 62h14l8 8v13H22z" fill="#fff"/>
+    <path d="M36 62v8h8z" fill="#8dc7ff"/>
+    <text x="54" y="78" fill="#eee" font-family="Segoe UI, Arial" font-size="15" font-weight="600">simple.docx</text>
+    <text x="150" y="78" fill="#999" font-family="Segoe UI, Arial" font-size="13">10.3 KB</text>
+    <rect x="285" y="57" width="157" height="30" rx="5" fill="#303030" stroke="#454545"/>
+    <rect x="288" y="60" width="76" height="24" rx="3" fill="#0e639c"/>
+    <text x="326" y="77" text-anchor="middle" fill="#fff" font-family="Segoe UI, Arial" font-size="13">Visual</text>
+    <text x="402" y="77" text-anchor="middle" fill="#ccc" font-family="Segoe UI, Arial" font-size="13">Text</text>
+    <rect x="836" y="59" width="72" height="26" rx="4" fill="#303030"/>
+    <text x="872" y="77" text-anchor="middle" fill="#ddd" font-family="Segoe UI, Arial" font-size="13">HTML</text>
+    <rect x="926" y="57" width="154" height="30" rx="5" fill="#303030" stroke="#454545"/>
+    <text x="949" y="77" text-anchor="middle" fill="#ddd" font-family="Segoe UI, Arial" font-size="20">−</text>
+    <text x="1003" y="77" text-anchor="middle" fill="#ddd" font-family="Segoe UI, Arial" font-size="13">100%</text>
+    <text x="1058" y="77" text-anchor="middle" fill="#ddd" font-family="Segoe UI, Arial" font-size="18">+</text>
+    <rect y="96" width="1104" height="500" fill="#14161a"/>
+    <g transform="translate(289 122)">
+      <rect width="526" height="444" fill="#fff" filter="url(#shadow)"/>
+      <rect x="60" y="58" width="250" height="13" rx="3" fill="#1c4f91"/>
+      <rect x="60" y="84" width="340" height="8" rx="2" fill="#8c98a8"/>
+      <rect x="60" y="130" width="140" height="9" rx="2" fill="#1f2937"/>
+      <rect x="60" y="155" width="398" height="6" rx="2" fill="#a3acb8"/>
+      <rect x="60" y="171" width="370" height="6" rx="2" fill="#a3acb8"/>
+      <rect x="60" y="187" width="392" height="6" rx="2" fill="#a3acb8"/>
+      <rect x="60" y="223" width="106" height="9" rx="2" fill="#1f2937"/>
+      <circle cx="69" cy="258" r="4" fill="#3d7ccb"/>
+      <rect x="84" y="254" width="230" height="7" rx="2" fill="#8793a3"/>
+      <circle cx="69" cy="282" r="4" fill="#3d7ccb"/>
+      <rect x="84" y="278" width="260" height="7" rx="2" fill="#8793a3"/>
+      <circle cx="69" cy="306" r="4" fill="#3d7ccb"/>
+      <rect x="84" y="302" width="200" height="7" rx="2" fill="#8793a3"/>
+      <rect x="60" y="350" width="406" height="42" rx="5" fill="#eff6ff"/>
+      <rect x="76" y="364" width="280" height="7" rx="2" fill="#65a5e8"/>
+      <rect x="76" y="378" width="198" height="5" rx="2" fill="#9ab4cf"/>
+    </g>
+  </g>
+</svg>

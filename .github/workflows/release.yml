@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Validate tag and package version
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          test "${GITHUB_REF_NAME}" = "v${VERSION}"
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+
+      - run: npm ci
+      - run: npm audit
+      - run: npx playwright install --with-deps chromium
+      - run: xvfb-run -a npm run verify
+      - run: npm run package
+
+      - name: Generate checksum
+        shell: bash
+        run: sha256sum "show-docx-${VERSION}.vsix" > "show-docx-${VERSION}.vsix.sha256"
+
+      - name: Create draft GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            show-docx-${{ env.VERSION }}.vsix
+            show-docx-${{ env.VERSION }}.vsix.sha256

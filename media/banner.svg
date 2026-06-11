@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title description">
+  <title id="title">ShowDocx</title>
+  <desc id="description">A DOCX viewer for Visual Studio Code</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071a46"/>
+      <stop offset="0.5" stop-color="#123d96"/>
+      <stop offset="1" stop-color="#0868d7"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#67e8f9"/>
+      <stop offset="1" stop-color="#2084ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#00143b" flood-opacity=".38"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="360" rx="30" fill="url(#background)"/>
+  <circle cx="1060" cy="48" r="210" fill="#55d7ff" opacity=".08"/>
+  <circle cx="108" cy="336" r="250" fill="#0b1024" opacity=".18"/>
+  <g transform="translate(95 50)" filter="url(#shadow)">
+    <path d="M26 0h150l58 58v220H26A26 26 0 0 1 0 252V26A26 26 0 0 1 26 0z" fill="#f8fbff"/>
+    <path d="M176 0v58h58z" fill="#bcdcff"/>
+    <rect x="42" y="82" width="122" height="13" rx="6.5" fill="#65b9ff"/>
+    <rect x="42" y="116" width="150" height="13" rx="6.5" fill="#3f9ef5"/>
+    <rect x="42" y="150" width="138" height="13" rx="6.5" fill="#3f9ef5"/>
+    <rect x="42" y="184" width="92" height="13" rx="6.5" fill="#3f9ef5"/>
+    <path d="M116 229c35-48 96-48 131 0-35 48-96 48-131 0z" fill="#fff" stroke="#b7d9ff" stroke-width="7"/>
+    <circle cx="181.5" cy="229" r="34" fill="url(#lens)"/>
+    <circle cx="181.5" cy="229" r="16" fill="#08235e"/>
+    <circle cx="192" cy="218" r="6" fill="#fff" opacity=".9"/>
+  </g>
+  <g fill="#fff">
+    <text x="405" y="157" font-family="Segoe UI, Arial, sans-serif" font-size="86" font-weight="700" letter-spacing="-3">ShowDocx</text>
+    <text x="410" y="213" font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="#d8ecff">High-fidelity DOCX viewing inside Visual Studio Code</text>
+  </g>
+  <g transform="translate(410 258)" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="600">
+    <rect width="134" height="42" rx="21" fill="#ffffff" opacity=".12"/>
+    <text x="67" y="27" text-anchor="middle" fill="#fff">Visual mode</text>
+    <rect x="150" width="122" height="42" rx="21" fill="#ffffff" opacity=".12"/>
+    <text x="211" y="27" text-anchor="middle" fill="#fff">Text mode</text>
+    <rect x="288" width="113" height="42" rx="21" fill="#ffffff" opacity=".12"/>
+    <text x="344.5" y="27" text-anchor="middle" fill="#fff">HTML export</text>
+  </g>
+</svg>

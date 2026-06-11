@@ -1,0 +1,206 @@
+diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
+index d8e0043..bdd27f5 100644
+--- a/node_modules/docx-preview/dist/docx-preview.js
++++ b/node_modules/docx-preview/dist/docx-preview.js
+@@ -1371,7 +1371,12 @@
+         borderColor: "black",
+         highlight: "transparent"
+     };
+-    const supportedNamespaceURIs = [];
++    const supportedNamespaceURIs = [
++        "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
++        "http://schemas.microsoft.com/office/word/2010/wordprocessingShape",
++        "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup",
++        "http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
++    ];
+     const mmlTagMap = {
+         "oMath": DomType.MmlMath,
+         "oMathPara": DomType.MmlMathParagraph,
+@@ -1870,6 +1875,8 @@
+             var result = { type: DomType.Run, parent: parent, children: [] };
+             for (let c of globalXmlParser.elements(node)) {
+                 c = this.checkAlternateContent(c);
++                if (c == null)
++                    continue;
+                 switch (c.localName) {
+                     case "t":
+                         result.children.push({
+@@ -2122,13 +2129,57 @@
+         parseGraphic(elem) {
+             var graphicData = globalXmlParser.element(elem, "graphicData");
+             for (let n of globalXmlParser.elements(graphicData)) {
+-                switch (n.localName) {
+-                    case "pic":
+-                        return this.parsePicture(n);
+-                }
++                var result = this.parseGraphicElement(n);
++                if (result) return result;
++            }
++            return null;
++        }
++        parseGraphicElement(elem) {
++            switch (elem.localName) {
++                case "pic":
++                    return this.parsePicture(elem);
++                case "wsp":
++                    return this.parseWsp(elem);
++                case "wgp":
++                case "wpc":
++                    var children = [];
++                    for (let child of globalXmlParser.elements(elem)) {
++                        var parsed = this.parseGraphicElement(child);
++                        if (parsed) {
++                            if (Array.isArray(parsed)) children.push(...parsed);
++                            else children.push(parsed);
++                        }
++                    }
++                    return {
++                        type: DomType.VmlPicture,
++                        children: children
++                    };
+             }
+             return null;
+         }
++        parseWsp(elem) {
++            var txbx = globalXmlParser.element(elem, "txbx");
++            var txbxContent = txbx && globalXmlParser.element(txbx, "txbxContent");
++            var result = {
++                type: DomType.VmlPicture,
++                children: [],
++                cssStyle: {}
++            };
++            var spPr = globalXmlParser.element(elem, "spPr");
++            var xfrm = spPr && globalXmlParser.element(spPr, "xfrm");
++            var ext = xfrm && globalXmlParser.element(xfrm, "ext");
++            if (ext) {
++                result.cssStyle["width"] = globalXmlParser.lengthAttr(ext, "cx", LengthUsage.Emu);
++                result.cssStyle["height"] = globalXmlParser.lengthAttr(ext, "cy", LengthUsage.Emu);
++                result.cssStyle["position"] = "absolute";
++                result.cssStyle["left"] = "0px";
++                result.cssStyle["top"] = "0px";
++            }
++            if (txbxContent) {
++                result.children = this.parseBodyElements(txbxContent);
++            }
++            return result;
++        }
+         parsePicture(elem) {
+             var result = { type: DomType.Image, src: "", cssStyle: {} };
+             var blipFill = globalXmlParser.element(elem, "blipFill");
+@@ -3703,7 +3754,9 @@ section.${c}>footer { z-index: 1; }
+             return result;
+         }
+         renderVmlPicture(elem) {
+-            return this.renderContainer(elem, "div");
++            var result = this.renderContainer(elem, "div");
++            this.renderStyleValues(elem.cssStyle, result);
++            return result;
+         }
+         renderVmlElement(elem) {
+             var container = this.createSvgElement("svg");
+diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
+index 2691670..4d7a27e 100644
+--- a/node_modules/docx-preview/dist/docx-preview.mjs
++++ b/node_modules/docx-preview/dist/docx-preview.mjs
+@@ -1367,7 +1367,12 @@ var autos = {
+     borderColor: "black",
+     highlight: "transparent"
+ };
+-const supportedNamespaceURIs = [];
++const supportedNamespaceURIs = [
++    "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
++    "http://schemas.microsoft.com/office/word/2010/wordprocessingShape",
++    "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup",
++    "http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
++];
+ const mmlTagMap = {
+     "oMath": DomType.MmlMath,
+     "oMathPara": DomType.MmlMathParagraph,
+@@ -1866,6 +1871,8 @@ class DocumentParser {
+         var result = { type: DomType.Run, parent: parent, children: [] };
+         for (let c of globalXmlParser.elements(node)) {
+             c = this.checkAlternateContent(c);
++            if (c == null)
++                continue;
+             switch (c.localName) {
+                 case "t":
+                     result.children.push({
+@@ -2116,15 +2123,59 @@ class DocumentParser {
+         return result;
+     }
+     parseGraphic(elem) {
+-        var graphicData = globalXmlParser.element(elem, "graphicData");
+-        for (let n of globalXmlParser.elements(graphicData)) {
+-            switch (n.localName) {
+-                case "pic":
+-                    return this.parsePicture(n);
+-            }
++    var graphicData = globalXmlParser.element(elem, "graphicData");
++    for (let n of globalXmlParser.elements(graphicData)) {
++        var result = this.parseGraphicElement(n);
++        if (result) return result;
++    }
++    return null;
++}
++    parseGraphicElement(elem) {
++        switch (elem.localName) {
++            case "pic":
++                return this.parsePicture(elem);
++            case "wsp":
++                return this.parseWsp(elem);
++            case "wgp":
++            case "wpc":
++                var children = [];
++                for (let child of globalXmlParser.elements(elem)) {
++                    var parsed = this.parseGraphicElement(child);
++                    if (parsed) {
++                        if (Array.isArray(parsed)) children.push(...parsed);
++                        else children.push(parsed);
++                    }
++                }
++                return {
++                    type: DomType.VmlPicture,
++                    children: children
++                };
+         }
+         return null;
+     }
++    parseWsp(elem) {
++        var txbx = globalXmlParser.element(elem, "txbx");
++        var txbxContent = txbx && globalXmlParser.element(txbx, "txbxContent");
++        var result = {
++            type: DomType.VmlPicture,
++            children: [],
++            cssStyle: {}
++        };
++        var spPr = globalXmlParser.element(elem, "spPr");
++        var xfrm = spPr && globalXmlParser.element(spPr, "xfrm");
++        var ext = xfrm && globalXmlParser.element(xfrm, "ext");
++        if (ext) {
++            result.cssStyle["width"] = globalXmlParser.lengthAttr(ext, "cx", LengthUsage.Emu);
++            result.cssStyle["height"] = globalXmlParser.lengthAttr(ext, "cy", LengthUsage.Emu);
++            result.cssStyle["position"] = "absolute";
++            result.cssStyle["left"] = "0px";
++            result.cssStyle["top"] = "0px";
++        }
++        if (txbxContent) {
++            result.children = this.parseBodyElements(txbxContent);
++        }
++        return result;
++    }
+     parsePicture(elem) {
+         var result = { type: DomType.Image, src: "", cssStyle: {} };
+         var blipFill = globalXmlParser.element(elem, "blipFill");
+@@ -3699,8 +3750,10 @@ section.${c}>footer { z-index: 1; }
+         return result;
+     }
+     renderVmlPicture(elem) {
+-        return this.renderContainer(elem, "div");
+-    }
++    var result = this.renderContainer(elem, "div");
++    this.renderStyleValues(elem.cssStyle, result);
++    return result;
++}
+     renderVmlElement(elem) {
+         var container = this.createSvgElement("svg");
+         container.setAttribute("style", elem.cssStyleText);
