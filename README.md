@@ -8,6 +8,8 @@
 
 <p align="center">
   <a href="https://github.com/showdocx/show-docx/actions/workflows/ci.yml"><img src="https://github.com/showdocx/show-docx/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=showdocx.show-docx"><img src="https://img.shields.io/visual-studio-marketplace/v/showdocx.show-docx?label=VS%20Marketplace" alt="Visual Studio Marketplace version"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=showdocx.show-docx"><img src="https://img.shields.io/visual-studio-marketplace/i/showdocx.show-docx" alt="Visual Studio Marketplace installs"></a>
   <a href="https://github.com/showdocx/show-docx/releases"><img src="https://img.shields.io/github/v/release/showdocx/show-docx?display_name=tag" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
@@ -58,7 +60,13 @@ To choose ShowDocx explicitly, right-click a `.docx` file and select **Open with
 
 ## Installation
 
-Download `show-docx-1.0.0.vsix` from the
+Install [ShowDocx from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=showdocx.show-docx), search for `ShowDocx` in the VS Code Extensions view, or run:
+
+```bash
+code --install-extension showdocx.show-docx
+```
+
+For manual or offline installation, download `show-docx-1.0.0.vsix` from the
 [latest GitHub release](https://github.com/showdocx/show-docx/releases/latest), then run:
 
 ```bash
@@ -109,7 +117,10 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 
 ## Publishing
 
-Tags matching the package version, such as `v1.0.0`, run the full verification suite, package a VSIX, generate a SHA-256 checksum, and create a draft GitHub release. Marketplace publishing is intentionally not part of the current workflow.
+Tags matching the package version, such as `v1.0.0`, run the full verification suite, package a VSIX, generate a SHA-256 checksum, and create a draft GitHub release.
+
+Stable releases are also published under the `showdocx` publisher on the
+[Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=showdocx.show-docx). Marketplace publishing is currently a separate manual release step.
 
 ## Contributing
 

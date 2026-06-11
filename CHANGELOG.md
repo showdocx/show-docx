@@ -2,7 +2,7 @@
 
 All notable changes to ShowDocx are documented in this file.
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-06-11
 
 ### Added
 
@@ -19,3 +19,4 @@ All notable changes to ShowDocx are documented in this file.
 - Cross-platform CI, VSIX packaging, and tag-based release workflows.
 - Browser-level coverage for rendering, mode switching, zoom, export, printing, and chunked transfers.
 - Validated automatic reloads that preserve the last valid preview when a file becomes unavailable or invalid.
+- Public releases on GitHub and the Visual Studio Marketplace.
