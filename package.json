@@ -2,7 +2,7 @@
   "name": "show-docx",
   "displayName": "ShowDocx",
   "description": "A high-fidelity, theme-aware DOCX viewer for Visual Studio Code.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "showdocx",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -16,6 +16,11 @@
   },
   "engines": {
     "vscode": "^1.85.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    }
   },
   "categories": [
     "Visualization",
@@ -183,7 +188,7 @@
     "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.9.2",
     "docx": "^9.7.1",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "eslint": "^9.39.1",
     "glob": "^13.0.0",
     "mocha": "^11.3.0",

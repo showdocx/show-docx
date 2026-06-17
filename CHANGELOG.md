@@ -2,6 +2,12 @@
 
 All notable changes to ShowDocx are documented in this file.
 
+## [1.0.1] - 2026-06-17
+
+### Fixed
+
+- Declared support for VS Code Restricted Mode using the official `untrustedWorkspaces` manifest capability.
+
 ## [1.0.0] - 2026-06-11
 
 ### Added
