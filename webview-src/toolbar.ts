@@ -6,6 +6,9 @@ interface ToolbarCallbacks {
   onZoomOut(): void;
   onZoomReset(): void;
   onExport(): void;
+  onExportMarkdown(): void;
+  onExportPdf(): void;
+  onSearchToggle(): void;
   onPrint(): void;
 }
 
@@ -19,6 +22,9 @@ export class Toolbar {
   private readonly warningCount = getElement('warning-count');
   private readonly warningsPanel = getElement('warnings-panel');
   private readonly exportButton = getButton('export-button');
+  private readonly exportMdButton = getButton('export-md-button');
+  private readonly exportPdfButton = getButton('export-pdf-button');
+  private readonly searchToggleButton = getButton('search-toggle');
   private readonly printButton = getButton('print-button');
 
   public constructor(callbacks: ToolbarCallbacks) {
@@ -28,6 +34,9 @@ export class Toolbar {
     getButton('zoom-out').addEventListener('click', callbacks.onZoomOut);
     this.zoomValue.addEventListener('click', callbacks.onZoomReset);
     this.exportButton.addEventListener('click', callbacks.onExport);
+    this.exportMdButton.addEventListener('click', callbacks.onExportMarkdown);
+    this.exportPdfButton.addEventListener('click', callbacks.onExportPdf);
+    this.searchToggleButton.addEventListener('click', callbacks.onSearchToggle);
     this.printButton.addEventListener('click', callbacks.onPrint);
     this.warningsButton.addEventListener('click', () => {
       this.warningsPanel.classList.toggle('hidden');
@@ -77,6 +86,8 @@ export class Toolbar {
 
   public setBusy(busy: boolean): void {
     this.exportButton.toggleAttribute('disabled', busy);
+    this.exportMdButton.toggleAttribute('disabled', busy);
+    this.exportPdfButton.toggleAttribute('disabled', busy);
     this.printButton.toggleAttribute('disabled', busy);
   }
 }

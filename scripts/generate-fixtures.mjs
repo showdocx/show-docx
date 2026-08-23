@@ -174,6 +174,25 @@ const withImages = new Document({
   ],
 });
 
+const withHeadings = new Document({
+  sections: [
+    {
+      ...commonSections,
+      children: [
+        new Paragraph({ text: 'Main Document Title', heading: HeadingLevel.TITLE }),
+        new Paragraph({ text: 'Chapter 1: Getting Started', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph('This is the introduction section.'),
+        new Paragraph({ text: '1.1 Installation', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph('Installation steps go here.'),
+        new Paragraph({ text: '1.2 Configuration', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph('Configuration details.'),
+        new Paragraph({ text: 'Chapter 2: Advanced Topics', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph('Advanced details go here.'),
+      ],
+    },
+  ],
+});
+
 const empty = new Document({
   sections: [{ children: [new Paragraph('')] }],
 });
@@ -182,6 +201,7 @@ await Promise.all([
   writeDocx('simple.docx', simple),
   writeDocx('with-tables.docx', withTables),
   writeDocx('with-images.docx', withImages),
+  writeDocx('with-headings.docx', withHeadings),
   writeDocx('empty.docx', empty),
   writeFile(join(outputDirectory, 'corrupted.docx'), Buffer.from('not a valid OOXML package')),
 ]);

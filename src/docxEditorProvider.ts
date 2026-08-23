@@ -22,6 +22,7 @@ interface ViewerSettings {
 interface WebviewMessage {
   type: string;
   html?: string;
+  markdown?: string;
   href?: string;
   message?: string;
 }
@@ -59,7 +60,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     return provider;
   }
 
-  public constructor(private readonly context: vscode.ExtensionContext) {}
+  public constructor(private readonly context: vscode.ExtensionContext) { }
 
   public async openCustomDocument(
     uri: vscode.Uri,
@@ -187,6 +188,16 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           await this.saveHtml(entry.document.uri, message.html);
         }
         break;
+      case 'exportMarkdown':
+        if (typeof message.markdown === 'string') {
+          await this.saveMarkdown(entry.document.uri, message.markdown);
+        }
+        break;
+      case 'exportPdf':
+        if (typeof message.html === 'string') {
+          await this.exportPdf(entry.document.uri, message.html);
+        }
+        break;
       case 'openExternal':
         if (typeof message.href === 'string') {
           await this.openExternal(message.href);
@@ -277,6 +288,70 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(html));
     void vscode.window.showInformationMessage(
       `ShowDocx exported ${path.basename(target.path)}.`,
+      'Open File',
+    ).then((choice) => {
+      if (choice === 'Open File') {
+        void vscode.commands.executeCommand('vscode.open', target);
+      }
+    });
+  }
+
+  private async saveMarkdown(sourceUri: vscode.Uri, markdown: string): Promise<void> {
+    const defaultUri = sourceUri.with({
+      path: sourceUri.path.replace(/\.docx$/i, '') + '.md',
+    });
+    const target = await vscode.window.showSaveDialog({
+      defaultUri,
+      filters: {
+        'Markdown document': ['md', 'markdown'],
+      },
+      saveLabel: 'Export',
+      title: 'Export DOCX as Markdown',
+    });
+    if (!target) {
+      return;
+    }
+
+    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(markdown));
+    void vscode.window.showInformationMessage(
+      `ShowDocx exported ${path.basename(target.path)}.`,
+      'Open File',
+    ).then((choice) => {
+      if (choice === 'Open File') {
+        void vscode.commands.executeCommand('vscode.open', target);
+      }
+    });
+  }
+
+  private async exportPdf(sourceUri: vscode.Uri, html: string): Promise<void> {
+    const defaultUri = sourceUri.with({
+      path: sourceUri.path.replace(/\.docx$/i, '') + '.html',
+    });
+
+    const target = await vscode.window.showSaveDialog({
+      defaultUri,
+      filters: {
+        'HTML document (Print to PDF)': ['html', 'htm'],
+      },
+      saveLabel: 'Export PDF',
+      title: 'Export DOCX as PDF / HTML',
+    });
+    if (!target) {
+      return;
+    }
+
+    const printHtml = html.includes('</body>')
+      ? html.replace(
+        '</body>',
+        '<script>window.addEventListener("load", function() { setTimeout(function() { window.print(); }, 400); });</script></body>',
+      )
+      : html;
+
+    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(printHtml));
+    await vscode.env.openExternal(target);
+
+    void vscode.window.showInformationMessage(
+      `ShowDocx exported ${path.basename(target.path)}. Printing/PDF dialog opened in your browser.`,
       'Open File',
     ).then((choice) => {
       if (choice === 'Open File') {
@@ -379,15 +454,34 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           <span class="codicon codicon-list-tree"></span><span>Text</span>
         </button>
       </div>
+      <div class="toolbar-group view-toggles" aria-label="View panels">
+        <button id="outline-toggle" class="toolbar-button icon-button" type="button" title="Document outline" aria-label="Toggle document outline" aria-pressed="false">
+          <span class="codicon codicon-list-flat"></span>
+        </button>
+        <button id="comments-toggle" class="toolbar-button icon-button" type="button" title="Comments and changes" aria-label="Toggle comments and changes" aria-pressed="false">
+          <span class="codicon codicon-comment-discussion"></span><span id="comment-count" class="badge hidden"></span>
+        </button>
+        <button id="search-toggle" class="toolbar-button icon-button" type="button" title="Find in document (Ctrl+F)" aria-label="Find in document">
+          <span class="codicon codicon-search"></span>
+        </button>
+      </div>
       <div class="toolbar-spacer"></div>
       <button id="warnings-button" class="toolbar-button icon-button hidden" type="button" title="Rendering warnings" aria-label="Show rendering warnings">
         <span class="codicon codicon-warning"></span><span id="warning-count"></span>
       </button>
+      <div class="toolbar-group export-controls" aria-label="Export options">
+        <button id="export-button" class="toolbar-button" type="button" title="Export semantic HTML">
+          <span class="codicon codicon-export"></span><span>HTML</span>
+        </button>
+        <button id="export-md-button" class="toolbar-button" type="button" title="Export Markdown">
+          <span class="codicon codicon-markdown"></span><span>MD</span>
+        </button>
+        <button id="export-pdf-button" class="toolbar-button" type="button" title="Export as PDF">
+          <span class="codicon codicon-file-pdf"></span><span>PDF</span>
+        </button>
+      </div>
       <button id="print-button" class="toolbar-button" type="button" title="Print document">
         <span class="codicon codicon-printer"></span><span>Print</span>
-      </button>
-      <button id="export-button" class="toolbar-button" type="button" title="Export semantic HTML">
-        <span class="codicon codicon-export"></span><span>HTML</span>
       </button>
       <div class="toolbar-group zoom-controls" aria-label="Zoom controls">
         <button id="zoom-out" class="toolbar-button icon-button" type="button" title="Zoom out" aria-label="Zoom out">
@@ -400,25 +494,59 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       </div>
     </header>
     <aside id="warnings-panel" class="warnings-panel hidden" aria-live="polite"></aside>
-    <main id="viewport" class="showdocx-viewport">
-      <div id="loading" class="showdocx-loading">
-        <div class="spinner" aria-hidden="true"></div>
-        <div id="loading-label">Waiting for document...</div>
-        <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
-      </div>
-      <section id="error-state" class="showdocx-error hidden" role="alert">
-        <span class="codicon codicon-error error-icon" aria-hidden="true"></span>
-        <h1>Unable to preview this document</h1>
-        <p id="error-message"></p>
-        <button id="retry-button" class="primary-button" type="button">Try again</button>
-      </section>
-      <div id="zoom-frame" class="zoom-frame hidden">
-        <div id="zoom-surface" class="zoom-surface">
-          <div id="visual-container" class="render-container visual-container"></div>
-          <article id="text-container" class="render-container showdocx-text hidden"></article>
+    <div id="search-bar" class="showdocx-search-bar hidden" role="search" aria-label="Find in document">
+      <span class="codicon codicon-search search-icon" aria-hidden="true"></span>
+      <input id="search-input" type="text" placeholder="Find in document..." aria-label="Find in document" />
+      <span id="search-count" class="search-count">0/0</span>
+      <button id="search-prev" class="toolbar-button icon-button" type="button" title="Previous match (Shift+Enter)" aria-label="Previous match">
+        <span class="codicon codicon-arrow-up"></span>
+      </button>
+      <button id="search-next" class="toolbar-button icon-button" type="button" title="Next match (Enter)" aria-label="Next match">
+        <span class="codicon codicon-arrow-down"></span>
+      </button>
+      <button id="search-close" class="toolbar-button icon-button" type="button" title="Close search (Escape)" aria-label="Close search">
+        <span class="codicon codicon-close"></span>
+      </button>
+    </div>
+    <div class="showdocx-main-area">
+      <aside id="outline-sidebar" class="showdocx-sidebar showdocx-outline hidden" aria-label="Document outline">
+        <div class="sidebar-header">
+          <span class="sidebar-title"><span class="codicon codicon-list-flat"></span> Outline</span>
+          <button id="outline-close" class="toolbar-button icon-button" type="button" title="Close outline" aria-label="Close outline">
+            <span class="codicon codicon-close"></span>
+          </button>
         </div>
-      </div>
-    </main>
+        <nav id="outline-list" class="sidebar-content outline-list"></nav>
+      </aside>
+      <aside id="comments-sidebar" class="showdocx-sidebar showdocx-comments hidden" aria-label="Comments and changes">
+        <div class="sidebar-header">
+          <span class="sidebar-title"><span class="codicon codicon-comment-discussion"></span> Comments</span>
+          <button id="comments-close" class="toolbar-button icon-button" type="button" title="Close comments" aria-label="Close comments">
+            <span class="codicon codicon-close"></span>
+          </button>
+        </div>
+        <div id="comments-list" class="sidebar-content comments-list"></div>
+      </aside>
+      <main id="viewport" class="showdocx-viewport">
+        <div id="loading" class="showdocx-loading">
+          <div class="spinner" aria-hidden="true"></div>
+          <div id="loading-label">Waiting for document...</div>
+          <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+        </div>
+        <section id="error-state" class="showdocx-error hidden" role="alert">
+          <span class="codicon codicon-error error-icon" aria-hidden="true"></span>
+          <h1>Unable to preview this document</h1>
+          <p id="error-message"></p>
+          <button id="retry-button" class="primary-button" type="button">Try again</button>
+        </section>
+        <div id="zoom-frame" class="zoom-frame hidden">
+          <div id="zoom-surface" class="zoom-surface">
+            <div id="visual-container" class="render-container visual-container"></div>
+            <article id="text-container" class="render-container showdocx-text hidden"></article>
+          </div>
+        </div>
+      </main>
+    </div>
   </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

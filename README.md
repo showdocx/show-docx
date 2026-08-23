@@ -18,10 +18,13 @@
 
 - **Visual mode** renders pages, headers, footers, tables, images, footnotes, and document sizing with `docx-preview`.
 - **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
+- **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
+- **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
+- **Comments and tracked changes** viewer panel displaying reviewer notes, additions, and deletions.
+- **Export formats**: Export to sanitized semantic HTML, Markdown (`.md`), or print/save as PDF.
 - **Zoom from 25% to 400%** using the toolbar or `Ctrl/Cmd` keyboard shortcuts.
 - **Persistent state** remembers rendering mode, zoom, and scroll position while the editor remains open.
 - **Automatic reload** updates the preview when the source file changes on disk.
-- **HTML export** writes a sanitized, standalone semantic HTML document.
 - **Large-file transfer** sends documents to the webview in 1 MB chunks.
 - **VS Code theme support** covers light, dark, high-contrast, and forced-color modes.
 - **Secure webview** uses a strict Content Security Policy, nonce-protected scripts, restricted external links, and sanitized text output.
@@ -34,8 +37,10 @@
 
 1. Open any `.docx` file. ShowDocx is registered as the default custom editor.
 2. Use **Visual** for the Word-like page layout or **Text** for a clean reading view.
-3. Use the toolbar or `Ctrl/Cmd` + `+`, `-`, and `0` to control zoom.
-4. Select **HTML** in the toolbar or run `ShowDocx: Export as HTML` from the Command Palette.
+3. Press `Ctrl/Cmd + F` to search within the document.
+4. Open the **Outline** or **Comments** sidebars from the toolbar to navigate structure and reviews.
+5. Use the toolbar or `Ctrl/Cmd` + `+`, `-`, and `0` to control zoom.
+6. Export the document as **HTML**, **MD** (Markdown), or **PDF** from the toolbar or Command Palette.
 
 To choose ShowDocx explicitly, right-click a `.docx` file and select **Open with ShowDocx**.
 
@@ -43,7 +48,10 @@ To choose ShowDocx explicitly, right-click a `.docx` file and select **Open with
 
 | Command | Purpose |
 | --- | --- |
+| `ShowDocx: Find in Document` | Open in-document search bar (`Ctrl/Cmd + F`) |
 | `ShowDocx: Export as HTML` | Export sanitized semantic HTML |
+| `ShowDocx: Export as Markdown` | Export clean Markdown document (`.md`) |
+| `ShowDocx: Export as PDF` | Open print / save as PDF dialogue |
 | `ShowDocx: Zoom In` | Increase zoom by 10% |
 | `ShowDocx: Zoom Out` | Decrease zoom by 10% |
 | `ShowDocx: Reset Zoom` | Reset zoom to 100% |

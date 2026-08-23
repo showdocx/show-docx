@@ -39,7 +39,10 @@ export interface IncomingMessage {
     | 'zoomOut'
     | 'zoomReset'
     | 'toggleMode'
-    | 'requestExportHtml';
+    | 'search'
+    | 'requestExportHtml'
+    | 'requestExportMarkdown'
+    | 'requestExportPdf';
   transferId?: number;
   fileName?: string;
   fileSize?: number;

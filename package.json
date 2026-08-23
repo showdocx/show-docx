@@ -2,10 +2,14 @@
   "name": "show-docx",
   "displayName": "ShowDocx",
   "description": "A high-fidelity, theme-aware DOCX viewer for Visual Studio Code.",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "showdocx",
   "license": "MIT",
   "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/showdocx/show-docx.git"
@@ -15,25 +19,30 @@
     "url": "https://github.com/showdocx/show-docx/issues"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.93.0"
   },
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": true
+      "supported": "limited",
+      "description": "ShowDocx renders local documents safely without executing external scripts."
     }
   },
   "categories": [
-    "Visualization",
-    "Other"
+    "Other",
+    "Formatters",
+    "Viewers"
   ],
   "keywords": [
     "docx",
     "word",
-    "document",
+    "office",
     "viewer",
-    "preview"
+    "preview",
+    "document"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCustomEditor:showDocx.docxViewer"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "customEditors": [
@@ -51,11 +60,27 @@
     "commands": [
       {
         "command": "showDocx.openWith",
-        "title": "Open with ShowDocx"
+        "title": "ShowDocx: Open with ShowDocx",
+        "category": "ShowDocx"
       },
       {
         "command": "showDocx.exportHtml",
         "title": "ShowDocx: Export as HTML",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.exportMarkdown",
+        "title": "ShowDocx: Export as Markdown",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.exportPdf",
+        "title": "ShowDocx: Export as PDF",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.search",
+        "title": "ShowDocx: Find in Document",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
@@ -86,16 +111,15 @@
           "when": "resourceExtname == .docx",
           "group": "navigation@20"
         }
-      ],
-      "editor/title": [
-        {
-          "command": "showDocx.exportHtml",
-          "when": "activeCustomEditorId == showDocx.docxViewer",
-          "group": "navigation@10"
-        }
       ]
     },
     "keybindings": [
+      {
+        "command": "showDocx.search",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeCustomEditorId == showDocx.docxViewer"
+      },
       {
         "command": "showDocx.zoomIn",
         "key": "ctrl+=",

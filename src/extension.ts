@@ -16,6 +16,15 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('showDocx.exportHtml', () => {
       provider.sendToActivePanel('requestExportHtml');
     }),
+    vscode.commands.registerCommand('showDocx.exportMarkdown', () => {
+      provider.sendToActivePanel('requestExportMarkdown');
+    }),
+    vscode.commands.registerCommand('showDocx.exportPdf', () => {
+      provider.sendToActivePanel('requestExportPdf');
+    }),
+    vscode.commands.registerCommand('showDocx.search', () => {
+      provider.sendToActivePanel('search');
+    }),
     vscode.commands.registerCommand('showDocx.zoomIn', () => {
       provider.sendToActivePanel('zoomIn');
     }),

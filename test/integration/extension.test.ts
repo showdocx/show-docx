@@ -12,6 +12,9 @@ describe('ShowDocx extension', () => {
     for (const command of [
       'showDocx.openWith',
       'showDocx.exportHtml',
+      'showDocx.exportMarkdown',
+      'showDocx.exportPdf',
+      'showDocx.search',
       'showDocx.zoomIn',
       'showDocx.zoomOut',
       'showDocx.zoomReset',

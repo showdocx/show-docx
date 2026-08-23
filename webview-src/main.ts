@@ -3,6 +3,9 @@ import { renderAsync } from 'docx-preview';
 import DOMPurify from 'dompurify';
 import * as mammoth from 'mammoth';
 import './styles.css';
+import { CommentsController } from './comments';
+import { OutlineController } from './outline';
+import { SearchController } from './search';
 import { StateManager } from './stateManager';
 import { Toolbar } from './toolbar';
 import type {
@@ -47,6 +50,20 @@ let chunkTransfer: {
 } | undefined;
 let scrollTimer: number | undefined;
 
+const getActiveContainer = (): HTMLElement => (state.value.mode === 'visual' ? visualContainer : textContainer);
+
+const search = new SearchController(getActiveContainer);
+const outline = new OutlineController(getActiveContainer, (isOpen) => {
+  if (isOpen) {
+    comments.close();
+  }
+});
+const comments = new CommentsController(getActiveContainer, (isOpen) => {
+  if (isOpen) {
+    outline.close();
+  }
+});
+
 const toolbar = new Toolbar({
   onModeChange: (mode) => {
     void switchMode(mode);
@@ -57,8 +74,17 @@ const toolbar = new Toolbar({
   onExport: () => {
     void exportHtml();
   },
+  onExportMarkdown: () => {
+    void exportMarkdown();
+  },
+  onExportPdf: () => {
+    void exportPdf();
+  },
+  onSearchToggle: () => {
+    search.toggle();
+  },
   onPrint: () => {
-    window.print();
+    void exportPdf();
   },
 });
 
@@ -89,6 +115,9 @@ window.addEventListener('keydown', (event) => {
   } else if (event.key === '0') {
     event.preventDefault();
     zoom.reset();
+  } else if (event.key === 'f' || event.key === 'F') {
+    event.preventDefault();
+    search.open();
   } else if (event.key === 'p' || event.key === 'P') {
     event.preventDefault();
     window.print();
@@ -187,8 +216,17 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
     case 'toggleMode':
       await switchMode(state.value.mode === 'visual' ? 'text' : 'visual');
       break;
+    case 'search':
+      search.open();
+      break;
     case 'requestExportHtml':
       await exportHtml();
+      break;
+    case 'requestExportMarkdown':
+      await exportMarkdown();
+      break;
+    case 'requestExportPdf':
+      await exportPdf();
       break;
     default:
       break;
@@ -243,6 +281,9 @@ async function switchMode(mode: RenderMode): Promise<void> {
   if (currentBuffer) {
     await renderMode(mode);
   }
+  outline.refresh();
+  comments.refresh();
+  search.refresh();
 }
 
 async function renderMode(mode: RenderMode): Promise<void> {
@@ -301,6 +342,9 @@ async function renderMode(mode: RenderMode): Promise<void> {
     requestAnimationFrame(() => {
       viewport.scrollTop = state.value.scrollTop;
     });
+    outline.refresh();
+    comments.refresh();
+    search.refresh();
   } catch (error: unknown) {
     if (generation !== renderGeneration) {
       return;
@@ -337,6 +381,8 @@ async function renderVisual(arrayBuffer: ArrayBuffer): Promise<void> {
     renderFooters: true,
     renderFootnotes: true,
     renderEndnotes: true,
+    renderComments: true,
+    renderChanges: true,
     useBase64URL: true,
     trimXmlDeclaration: true,
     experimental: true,
@@ -357,6 +403,8 @@ async function renderVisual(arrayBuffer: ArrayBuffer): Promise<void> {
         renderFooters: false,
         renderFootnotes: false,
         renderEndnotes: false,
+        renderComments: false,
+        renderChanges: false,
       });
     } catch (secondError) {
       console.error('Second render attempt failed:', secondError);
@@ -402,6 +450,52 @@ async function exportHtml(): Promise<void> {
     }
     vscode.postMessage({
       type: 'exportHtml',
+      html: createExportDocument(currentMeta.fileName, exportedTextHtml),
+    });
+  } catch (error: unknown) {
+    showError(toRenderError(error));
+  } finally {
+    toolbar.setBusy(false);
+  }
+}
+
+async function exportMarkdown(): Promise<void> {
+  if (!currentBuffer || !currentMeta) {
+    return;
+  }
+  toolbar.setBusy(true);
+  try {
+    showLoading('Preparing Markdown document...', 75);
+    const mammothExtended = mammoth as unknown as {
+      convertToMarkdown(input: { arrayBuffer: ArrayBuffer }): Promise<{ value: string; messages: Array<{ message: string }> }>;
+    };
+    const result = await mammothExtended.convertToMarkdown({ arrayBuffer: currentBuffer.slice(0) });
+    showContent();
+    vscode.postMessage({
+      type: 'exportMarkdown',
+      markdown: result.value,
+    });
+  } catch (error: unknown) {
+    showError(toRenderError(error));
+  } finally {
+    toolbar.setBusy(false);
+  }
+}
+
+async function exportPdf(): Promise<void> {
+  if (!currentBuffer || !currentMeta) {
+    return;
+  }
+  toolbar.setBusy(true);
+  try {
+    if (!textRendered) {
+      showLoading('Preparing document for PDF...', 75);
+      await renderText(currentBuffer.slice(0));
+      textRendered = true;
+      showContent();
+    }
+    vscode.postMessage({
+      type: 'exportPdf',
       html: createExportDocument(currentMeta.fileName, exportedTextHtml),
     });
   } catch (error: unknown) {
