@@ -28,6 +28,8 @@ try {
       '--disable-workspace-trust',
       '--skip-welcome',
       '--skip-release-notes',
+      '--disable-gpu',
+      '--disable-updates',
       `--user-data-dir=${join(testDataDirectory, 'user-data')}`,
       `--extensions-dir=${join(testDataDirectory, 'extensions')}`,
     ],
