@@ -74,11 +74,11 @@ Install [ShowDocx from the Visual Studio Marketplace](https://marketplace.visual
 code --install-extension showdocx.show-docx
 ```
 
-For manual or offline installation, download `show-docx-1.0.1.vsix` from the
+For manual or offline installation, download `show-docx-1.1.0.vsix` from the
 [latest GitHub release](https://github.com/showdocx/show-docx/releases/latest), then run:
 
 ```bash
-code --install-extension show-docx-1.0.1.vsix
+code --install-extension show-docx-1.1.0.vsix
 ```
 
 You can also use **Extensions: Install from VSIX...** from the VS Code Command Palette.
@@ -125,7 +125,7 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 
 ## Publishing
 
-Tags matching the package version, such as `v1.0.0`, run the full verification suite, package a VSIX, generate a SHA-256 checksum, and create a draft GitHub release.
+Tags matching the package version, such as `v1.1.0`, run the full verification suite, package a VSIX, generate a SHA-256 checksum, and create a draft GitHub release.
 
 Stable releases are also published under the `showdocx` publisher on the
 [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=showdocx.show-docx). Marketplace publishing is currently a separate manual release step.
