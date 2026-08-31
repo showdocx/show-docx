@@ -12,6 +12,7 @@ import {
 } from './git';
 import { DIFF_SCHEME, WORKING_TREE, encodeDiffUri } from './diffProvider';
 import type { DocxDiffContentProvider } from './diffProvider';
+import { isDocumentPath } from '../../shared/documentExtensions';
 import { getLog } from '../log';
 
 /**
@@ -109,5 +110,5 @@ function toUserMessage(error: unknown, name: string): string {
 export function isComparableDocx(uri: vscode.Uri | undefined): uri is vscode.Uri {
   return uri !== undefined
     && uri.scheme !== DIFF_SCHEME
-    && path.extname(uri.path).toLowerCase() === '.docx';
+    && isDocumentPath(uri.path);
 }

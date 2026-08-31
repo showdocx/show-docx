@@ -20,6 +20,10 @@ describe('ShowDocx extension', () => {
       'showDocx.zoomReset',
       'showDocx.toggleMode',
       'showDocx.cyclePageTheme',
+      'showDocx.copyAsMarkdown',
+      'showDocx.copyAsText',
+      'showDocx.fitToWidth',
+      'showDocx.fitToPage',
       'showDocx.showLog',
     ]) {
       assert.ok(commands.includes(command), `Expected command ${command} to be registered.`);

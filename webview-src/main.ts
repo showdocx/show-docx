@@ -98,7 +98,13 @@ const toolbar = new Toolbar({
     void exportHtml();
   },
   onExportMarkdown: () => {
-    void exportMarkdown();
+    askHostFor('exportMarkdown');
+  },
+  onCopyMarkdown: () => {
+    askHostFor('copyMarkdown');
+  },
+  onCopyText: () => {
+    askHostFor('copyText');
   },
   onExportPdf: () => {
     void exportPdf();
@@ -112,13 +118,27 @@ const toolbar = new Toolbar({
   onCyclePageTheme: () => {
     applyPageTheme(state.nextPageTheme());
   },
+  onCycleFit: () => {
+    zoom.setFitMode(zoom.nextFitMode());
+  },
 });
 
 const zoom = new ZoomController(
+  viewport,
   zoomSurface,
   state,
-  (value) => toolbar.updateZoom(value),
+  (value, fit) => toolbar.updateZoom(value, fit),
 );
+
+// A fit is a mode, not a one-shot action: dragging the panel narrower keeps the
+// page fitted rather than leaving it at the width the panel used to be.
+new ResizeObserver(() => zoom.refit()).observe(viewport);
+
+viewport.addEventListener('wheel', (event) => {
+  zoom.handleWheel(event);
+  // passive: false, because a passive listener may not call preventDefault and
+  // the editor would zoom underneath the document instead.
+}, { passive: false });
 
 toolbar.updateMode(state.value.mode);
 applyPageTheme(state.value.pageTheme);
@@ -241,6 +261,12 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
     case 'zoomReset':
       zoom.reset();
       break;
+    case 'fitWidth':
+      zoom.setFitMode('width');
+      break;
+    case 'fitPage':
+      zoom.setFitMode('page');
+      break;
     case 'toggleMode':
       await switchMode(state.value.mode === 'visual' ? 'text' : 'visual');
       break;
@@ -254,7 +280,13 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
       await exportHtml();
       break;
     case 'requestExportMarkdown':
-      await exportMarkdown();
+      askHostFor('exportMarkdown');
+      break;
+    case 'requestCopyMarkdown':
+      askHostFor('copyMarkdown');
+      break;
+    case 'requestCopyText':
+      askHostFor('copyText');
       break;
     case 'requestExportPdf':
       await exportPdf();
@@ -418,6 +450,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
     requestAnimationFrame(() => {
       viewport.scrollTop = state.value.scrollTop;
     });
+    zoom.refit();
     outline.refresh();
     comments.refresh();
     search.refresh();
@@ -562,27 +595,17 @@ async function exportHtml(): Promise<void> {
   }
 }
 
-async function exportMarkdown(): Promise<void> {
-  if (!currentBuffer || !currentMeta) {
+/**
+ * Markdown and plain text are converted in the extension host, which already
+ * holds the document bytes. Doing it there keeps one converter behind the
+ * export, the clipboard and the language model tool, rather than a second one
+ * here that would answer the same question differently.
+ */
+function askHostFor(type: 'exportMarkdown' | 'copyMarkdown' | 'copyText'): void {
+  if (!currentMeta) {
     return;
   }
-  toolbar.setBusy(true);
-  try {
-    showLoading('Preparing Markdown document...', 75);
-    const mammothExtended = mammoth as unknown as {
-      convertToMarkdown(input: { arrayBuffer: ArrayBuffer }): Promise<{ value: string; messages: Array<{ message: string }> }>;
-    };
-    const result = await mammothExtended.convertToMarkdown({ arrayBuffer: currentBuffer });
-    showContent();
-    vscode.postMessage({
-      type: 'exportMarkdown',
-      markdown: result.value,
-    });
-  } catch (error: unknown) {
-    showError(toRenderError(error));
-  } finally {
-    toolbar.setBusy(false);
-  }
+  vscode.postMessage({ type });
 }
 
 async function exportPdf(): Promise<void> {

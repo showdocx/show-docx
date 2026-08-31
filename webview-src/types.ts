@@ -11,6 +11,15 @@ export const PAGE_THEME_LABELS: Record<PageTheme, string> = {
   dark: 'Dark',
 };
 
+/** A zoom that is maintained against the panel size rather than a fixed level. */
+export type FitMode = 'none' | 'width' | 'page';
+
+export const FIT_MODE_LABELS: Record<FitMode, string> = {
+  none: '100%',
+  width: 'Fit width',
+  page: 'Fit page',
+};
+
 export interface ViewerSettings {
   defaultMode: RenderMode;
   defaultZoom: number;
@@ -24,6 +33,7 @@ export interface ViewerState {
   zoom: number;
   scrollTop: number;
   pageTheme: PageTheme;
+  fitMode: FitMode;
 }
 
 export interface VsCodeApi<T> {
@@ -53,12 +63,16 @@ export interface IncomingMessage {
     | 'zoomIn'
     | 'zoomOut'
     | 'zoomReset'
+    | 'fitWidth'
+    | 'fitPage'
     | 'toggleMode'
     | 'cyclePageTheme'
     | 'search'
     | 'requestExportHtml'
     | 'requestExportMarkdown'
-    | 'requestExportPdf';
+    | 'requestExportPdf'
+    | 'requestCopyMarkdown'
+    | 'requestCopyText';
   transferId?: number;
   fileName?: string;
   fileSize?: number;

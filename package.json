@@ -1,7 +1,7 @@
 {
   "name": "show-docx",
   "displayName": "ShowDocx",
-  "description": "A high-fidelity, theme-aware DOCX viewer for Visual Studio Code.",
+  "description": "A high-fidelity, theme-aware viewer for Word documents (.docx, .docm, .dotx, .dotm) in Visual Studio Code.",
   "version": "1.1.1",
   "publisher": "showdocx",
   "license": "MIT",
@@ -48,10 +48,10 @@
     "customEditors": [
       {
         "viewType": "showDocx.docxViewer",
-        "displayName": "DOCX Viewer",
+        "displayName": "Word Document Viewer",
         "selector": [
           {
-            "filenamePattern": "*.docx"
+            "filenamePattern": "*.{docx,docm,dotx,dotm}"
           }
         ],
         "priority": "default"
@@ -67,7 +67,7 @@
         "command": "showDocx.compareWithHead",
         "title": "Compare with HEAD",
         "category": "ShowDocx",
-        "enablement": "activeCustomEditorId == showDocx.docxViewer || resourceExtname == .docx"
+        "enablement": "activeCustomEditorId == showDocx.docxViewer || resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm"
       },
       {
         "command": "showDocx.exportHtml",
@@ -84,6 +84,18 @@
       {
         "command": "showDocx.exportPdf",
         "title": "Print to PDF (via Browser)",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.copyAsMarkdown",
+        "title": "Copy as Markdown",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.copyAsText",
+        "title": "Copy as Plain Text",
         "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
@@ -112,6 +124,18 @@
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
+        "command": "showDocx.fitToWidth",
+        "title": "Fit Page to Width",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.fitToPage",
+        "title": "Fit Whole Page",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
         "command": "showDocx.toggleMode",
         "title": "Toggle Visual/Text Mode",
         "category": "ShowDocx",
@@ -133,12 +157,12 @@
       "explorer/context": [
         {
           "command": "showDocx.openWith",
-          "when": "resourceExtname == .docx",
+          "when": "resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm",
           "group": "navigation@20"
         },
         {
           "command": "showDocx.compareWithHead",
-          "when": "resourceExtname == .docx",
+          "when": "resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm",
           "group": "navigation@21"
         }
       ],

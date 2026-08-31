@@ -76,6 +76,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('showDocx.exportPdf', () => {
       provider.sendToActivePanel('requestExportPdf');
     }),
+    vscode.commands.registerCommand('showDocx.copyAsMarkdown', () => {
+      provider.sendToActivePanel('requestCopyMarkdown');
+    }),
+    vscode.commands.registerCommand('showDocx.copyAsText', () => {
+      provider.sendToActivePanel('requestCopyText');
+    }),
     vscode.commands.registerCommand('showDocx.search', () => {
       provider.sendToActivePanel('search');
     }),
@@ -93,6 +99,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('showDocx.cyclePageTheme', () => {
       provider.sendToActivePanel('cyclePageTheme');
+    }),
+    vscode.commands.registerCommand('showDocx.fitToWidth', () => {
+      provider.sendToActivePanel('fitWidth');
+    }),
+    vscode.commands.registerCommand('showDocx.fitToPage', () => {
+      provider.sendToActivePanel('fitPage');
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('showDocx')) {

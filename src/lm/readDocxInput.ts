@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { DOCUMENT_EXTENSIONS, isDocumentPath } from '../../shared/documentExtensions';
 
 /**
  * Reading and bounding the arguments a model produced. Kept free of the VS Code
@@ -36,8 +37,10 @@ export function parseReadDocxInput(input: unknown): ReadDocxRequest {
     throw new ToolInputError('Provide "filePath": the path of the .docx file to read.');
   }
   const trimmed = filePath.trim();
-  if (path.extname(trimmed).toLowerCase() !== '.docx') {
-    throw new ToolInputError(`ShowDocx reads .docx files. "${trimmed}" is not one.`);
+  if (!isDocumentPath(trimmed)) {
+    throw new ToolInputError(
+      `ShowDocx reads Word documents (${DOCUMENT_EXTENSIONS.join(', ')}). "${trimmed}" is not one.`,
+    );
   }
 
   const requested = raw.maxCharacters;

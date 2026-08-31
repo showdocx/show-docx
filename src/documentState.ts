@@ -12,12 +12,14 @@
 
 export type StoredRenderMode = 'visual' | 'text';
 export type StoredPageTheme = 'paper' | 'sepia' | 'dark';
+export type StoredFitMode = 'none' | 'width' | 'page';
 
 export interface StoredViewerState {
   readonly mode: StoredRenderMode;
   readonly zoom: number;
   readonly scrollTop: number;
   readonly pageTheme: StoredPageTheme;
+  readonly fitMode: StoredFitMode;
 }
 
 export interface StateMemento {
@@ -99,7 +101,7 @@ export function toStoredState(value: unknown): StoredViewerState | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined;
   }
-  const { mode, zoom, scrollTop, pageTheme } = value as Record<string, unknown>;
+  const { mode, zoom, scrollTop, pageTheme, fitMode } = value as Record<string, unknown>;
   if (mode !== 'visual' && mode !== 'text') {
     return undefined;
   }
@@ -115,5 +117,6 @@ export function toStoredState(value: unknown): StoredViewerState | undefined {
     scrollTop: Math.max(0, Math.round(scrollTop)),
     // A record written before page themes existed has none to restore.
     pageTheme: pageTheme === 'sepia' || pageTheme === 'dark' ? pageTheme : 'paper',
+    fitMode: fitMode === 'width' || fitMode === 'page' ? fitMode : 'none',
   };
 }

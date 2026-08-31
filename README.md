@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Open and read <code>.docx</code> files directly in Visual Studio Code with page-accurate and semantic views.
+  Open and read Word documents — <code>.docx</code>, <code>.docm</code>, <code>.dotx</code>, <code>.dotm</code> — directly in Visual Studio Code with page-accurate and semantic views.
 </p>
 
 <p align="center">
@@ -23,9 +23,11 @@
 - **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
 - **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
 - **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions. Available in Visual mode; `mammoth` does not carry annotations into Text mode.
+- **Copy to the clipboard** as Markdown or plain text, in one click. Most of the time the content is wanted in an issue, a message or a code comment rather than in a file.
+- **Fit to width and fit to page**, held against the panel size, plus `Ctrl/Cmd` + wheel for continuous zoom.
 - **Export formats**: sanitized semantic HTML, Markdown (`.md`), or printable HTML that opens your browser's print dialog for **Save as PDF**. The printable file carries the Visual-mode page layout — page breaks, headers, footers, tables and embedded images.
 - **Page themes** for Visual mode: paper, sepia, or dark. Most VS Code users run a dark theme; an 80-page white document does not have to be the only option.
-- **Zoom from 25% to 400%** using the toolbar or `Ctrl/Cmd` keyboard shortcuts.
+- **Zoom from 25% to 400%** using the toolbar, `Ctrl/Cmd` keyboard shortcuts, or `Ctrl/Cmd` + the mouse wheel.
 - **Persistent state** remembers rendering mode, zoom, page theme, and reading position per document, across sessions. Close a specification and reopen it next week where you left it.
 - **Automatic reload** updates the preview when the source file changes on disk.
 - **Large-file transfer** sends documents to the webview in 1 MB chunks.
@@ -38,7 +40,7 @@
 
 ## Usage
 
-1. Open any `.docx` file. ShowDocx is registered as the default custom editor.
+1. Open any `.docx`, `.docm`, `.dotx` or `.dotm` file. ShowDocx is registered as the default custom editor for all four; they are the same OOXML package, and a macro is never executed.
 2. Use **Visual** for the Word-like page layout or **Text** for a clean reading view.
 3. Press `Ctrl/Cmd + F` to search within the document.
 4. Open the **Outline** or **Comments** sidebars from the toolbar to navigate structure and reviews.
@@ -73,10 +75,14 @@ The tool needs VS Code 1.95 or later. ShowDocx still declares support from 1.85,
 | `ShowDocx: Find in Document` | Open in-document search bar (`Ctrl/Cmd + F`) |
 | `ShowDocx: Export as HTML` | Export sanitized semantic HTML |
 | `ShowDocx: Export as Markdown` | Export clean Markdown document (`.md`) |
+| `ShowDocx: Copy as Markdown` | Put the document on the clipboard as Markdown |
+| `ShowDocx: Copy as Plain Text` | Put the document on the clipboard with no markup |
 | `ShowDocx: Print to PDF (via Browser)` | Save printable HTML and open your browser's print dialog (`Ctrl/Cmd + Alt + P`) |
 | `ShowDocx: Zoom In` | Increase zoom by 10% |
 | `ShowDocx: Zoom Out` | Decrease zoom by 10% |
 | `ShowDocx: Reset Zoom` | Reset zoom to 100% |
+| `ShowDocx: Fit Page to Width` | Scale the page to the panel width, and hold it as the panel is resized |
+| `ShowDocx: Fit Whole Page` | Scale so a whole page is visible |
 | `ShowDocx: Toggle Visual/Text Mode` | Switch rendering engines |
 | `ShowDocx: Change Page Theme` | Cycle the Visual-mode page between paper, sepia, and dark |
 | `ShowDocx: Show Log` | Open the ShowDocx log channel for diagnosing a failure |
@@ -141,7 +147,8 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 
 ## Known Limitations
 
-- `.doc` binary files are not supported.
+- `.doc` binary files are not supported. No reliable pure-JavaScript reader exists for the legacy format, and half-working output is worse than none.
+- Markdown output — exported, copied, or read by an agent — replaces an embedded image with a short placeholder rather than inlining megabytes of base64.
 - Text mode shows tracked changes as accepted: `mammoth` drops deletions and inlines insertions. The viewer says so in its rendering notes; use Visual mode to see the markup.
 - The comments sidebar reads annotations from the Visual-mode render, so it is empty in Text mode.
 - Search matches at most 2000 results per query, shown as `2000+`.

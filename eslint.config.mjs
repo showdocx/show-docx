@@ -38,6 +38,8 @@ export default [
         Node: 'readonly',
         Text: 'readonly',
         MessageEvent: 'readonly',
+        WheelEvent: 'readonly',
+        ResizeObserver: 'readonly',
         ArrayBuffer: 'readonly',
         Uint8Array: 'readonly',
       },

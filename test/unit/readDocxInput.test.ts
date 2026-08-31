@@ -33,7 +33,13 @@ describe('Read tool: reading the arguments', () => {
     }
   });
 
-  it('rejects a file that is not a DOCX', () => {
+  it('accepts every Word file type', () => {
+    for (const name of ['spec.docx', 'form.docm', 'letterhead.dotx', 'macro.dotm']) {
+      assert.equal(parseReadDocxInput({ filePath: name }).filePath, name);
+    }
+  });
+
+  it('rejects a file that is not a Word document', () => {
     // The tool must not become a way to read arbitrary files through a model.
     for (const filePath of ['notes.txt', '../../.env', 'id_rsa', 'spec.docx.exe']) {
       assert.throws(

@@ -1,12 +1,20 @@
 import { clamp } from '../shared/format';
 import { PAGE_THEMES } from './types';
-import type { PageTheme, RenderMode, ViewerSettings, ViewerState, VsCodeApi } from './types';
+import type {
+  FitMode,
+  PageTheme,
+  RenderMode,
+  ViewerSettings,
+  ViewerState,
+  VsCodeApi,
+} from './types';
 
 const DEFAULT_STATE: ViewerState = {
   mode: 'visual',
   zoom: 100,
   scrollTop: 0,
   pageTheme: 'paper',
+  fitMode: 'none',
 };
 
 /**
@@ -92,6 +100,14 @@ export class StateManager {
     this.persist();
   }
 
+  public setFitMode(fitMode: FitMode): void {
+    if (this.state.fitMode === fitMode) {
+      return;
+    }
+    this.state = { ...this.state, fitMode };
+    this.persist();
+  }
+
   public setPageTheme(pageTheme: PageTheme): void {
     if (this.state.pageTheme === pageTheme) {
       return;
@@ -118,6 +134,10 @@ export class StateManager {
   }
 }
 
+export function isFitMode(value: unknown): value is FitMode {
+  return value === 'none' || value === 'width' || value === 'page';
+}
+
 export function isPageTheme(value: unknown): value is PageTheme {
   return typeof value === 'string' && (PAGE_THEMES as readonly string[]).includes(value);
 }
@@ -136,5 +156,6 @@ function normalize(state: ViewerState): ViewerState {
     zoom: clamp(Math.round(state.zoom), 25, 400),
     scrollTop: Math.max(0, Math.round(state.scrollTop)),
     pageTheme: isPageTheme(state.pageTheme) ? state.pageTheme : 'paper',
+    fitMode: isFitMode(state.fitMode) ? state.fitMode : 'none',
   };
 }

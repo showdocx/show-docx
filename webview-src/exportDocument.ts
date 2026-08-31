@@ -1,3 +1,5 @@
+import { stripDocumentExtension } from '../shared/documentExtensions';
+
 /**
  * Standalone HTML export. Kept free of DOM and bundler dependencies so the unit
  * tests can exercise the real functions rather than copies of them.
@@ -13,7 +15,7 @@ export function escapeHtml(value: string): string {
 }
 
 export function createExportDocument(fileName: string, body: string): string {
-  const title = escapeHtml(fileName.replace(/\.docx$/i, ''));
+  const title = escapeHtml(stripDocumentExtension(fileName));
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -64,7 +66,7 @@ export function createPrintDocument(
   styles: string,
   body: string,
 ): string {
-  const title = escapeHtml(fileName.replace(/\.docx$/i, ''));
+  const title = escapeHtml(stripDocumentExtension(fileName));
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

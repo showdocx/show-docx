@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'mocha';
-import { decodeEntities, htmlToText, parseHtml } from '../../src/diff/htmlToText';
+import { decodeEntities, htmlToText, parseHtml } from '../../src/text/htmlToText';
 
 describe('Diff text: blocks', () => {
   it('writes one line per paragraph, separated by a blank line', () => {

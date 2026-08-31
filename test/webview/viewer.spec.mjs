@@ -6,7 +6,7 @@ test('renders visual and text modes and updates zoom', async ({ page }) => {
   await expect(page.locator('#visual-container section')).toBeVisible();
   await expect(page.locator('#file-name')).toHaveText('simple.docx');
 
-  await page.getByRole('button', { name: 'Text' }).click();
+  await page.locator('#mode-text').click();
   await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
 
   await page.getByRole('button', { name: 'Zoom in' }).click();
@@ -45,12 +45,10 @@ test('exports Markdown and PDF', async ({ page }) => {
   await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
 
   await page.locator('#export-md-button').click();
+  // The Markdown itself is produced in the host, which holds the bytes; this
+  // side only asks for it. Its content is covered by the host's own tests.
   await expect.poll(async () => page.evaluate(() => (
-    window.__showDocxTest.messages.some((message) => (
-      message.type === 'exportMarkdown'
-      && typeof message.markdown === 'string'
-      && message.markdown.includes('ShowDocx Sample')
-    ))
+    window.__showDocxTest.messages.some((message) => message.type === 'exportMarkdown')
   ))).toBe(true);
 
   await page.locator('#export-pdf-button').click();
@@ -169,7 +167,7 @@ test('renders repeatedly from one buffer', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
   await expect(page.locator('#visual-container section')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Text' }).click();
+  await page.locator('#mode-text').click();
   await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
 
   await page.getByRole('button', { name: 'HTML' }).click();
@@ -182,9 +180,105 @@ test('renders repeatedly from one buffer', async ({ page }) => {
   })).toBe(true);
 
   // Back to Visual: this re-reads the same buffer a fourth time.
-  await page.getByRole('button', { name: 'Visual' }).click();
+  await page.locator('#mode-visual').click();
   await expect(page.locator('#visual-container section')).toBeVisible();
   await expect(page.locator('#error-state')).toBeHidden();
+});
+
+test('asks the host to copy, rather than converting a second time here', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#copy-md-button').click();
+  await page.locator('#copy-text-button').click();
+  await page.locator('#export-md-button').click();
+
+  // The host holds the bytes and owns the converter, so these carry no payload:
+  // one document must not have two different Markdown answers.
+  await expect.poll(async () => page.evaluate(() => window.__showDocxTest.messages
+    .filter((message) => ['copyMarkdown', 'copyText', 'exportMarkdown'].includes(message.type))
+    .map((message) => `${message.type}:${Object.keys(message).length}`)))
+    .toEqual(['copyMarkdown:1', 'copyText:1', 'exportMarkdown:1']);
+});
+
+test('fits the page to the panel and holds the fit as it is resized', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  const fitted = async () => page.evaluate(() => {
+    const element = document.getElementById('viewport');
+    const sheet = document.querySelector('section.showdocx-visual').getBoundingClientRect();
+    const view = element.getBoundingClientRect();
+    const left = Math.round(sheet.left - view.left);
+    const right = Math.round(view.right - sheet.right);
+    return { left, right, overflows: element.scrollWidth > element.clientWidth };
+  });
+
+  await page.locator('#fit-button').click();
+  await expect(page.locator('#fit-button')).toHaveAttribute('aria-label', /Fit width/);
+
+  const wide = await fitted();
+  expect(wide.overflows).toBe(false);
+  expect(Math.abs(wide.left - wide.right)).toBeLessThanOrEqual(2);
+  const wideZoom = await page.locator('#zoom-reset').textContent();
+
+  // Narrowing the panel has to refit, not leave the page at the old width.
+  await page.setViewportSize({ width: 650, height: 800 });
+  await expect
+    .poll(async () => page.locator('#zoom-reset').textContent())
+    .not.toBe(wideZoom);
+  const narrow = await fitted();
+  expect(narrow.overflows).toBe(false);
+  expect(Math.abs(narrow.left - narrow.right)).toBeLessThanOrEqual(2);
+});
+
+test('fits a whole page within the panel', async ({ page }) => {
+  await page.setViewportSize({ width: 1300, height: 800 });
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#fit-button').click();
+  await page.locator('#fit-button').click();
+  await expect(page.locator('#fit-button')).toHaveAttribute('aria-label', /Fit page/);
+
+  const layout = await page.evaluate(() => {
+    const element = document.getElementById('viewport');
+    const sheet = document.querySelector('section.showdocx-visual').getBoundingClientRect();
+    return { pageHeight: sheet.height, viewportHeight: element.clientHeight };
+  });
+  expect(layout.pageHeight).toBeLessThanOrEqual(layout.viewportHeight);
+
+  // The third click returns to a plain 100%.
+  await page.locator('#fit-button').click();
+  await expect(page.locator('#zoom-reset')).toHaveText('100%');
+});
+
+test('zooms with Ctrl and the wheel, which ends the fit', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#fit-button').click();
+  await expect(page.locator('#fit-button')).toHaveAttribute('aria-label', /Fit width/);
+
+  await page.mouse.move(500, 400);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -300);
+  await page.keyboard.up('Control');
+
+  // A zoom the reader chose replaces the fit, rather than being undone by it.
+  await expect(page.locator('#zoom-reset')).not.toHaveText('100%');
+  await expect(page.locator('#fit-button')).toHaveAttribute('aria-label', /click for fit width/);
+});
+
+test('hides the fit control where it would do nothing', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?mode=text');
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+  await expect(page.locator('#fit-button')).toBeHidden();
+
+  await page.locator('#mode-visual').click();
+  await expect(page.locator('#fit-button')).toBeVisible();
 });
 
 test('fills the editor height whatever the document is', async ({ page }) => {
@@ -326,7 +420,7 @@ test('hides the page theme control where it would do nothing', async ({ page }) 
   await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
   await expect(page.locator('#page-theme-button')).toBeHidden();
 
-  await page.getByRole('button', { name: 'Visual' }).click();
+  await page.locator('#mode-visual').click();
   await expect(page.locator('#page-theme-button')).toBeVisible();
 });
 
@@ -366,7 +460,7 @@ test('leaves the reader where they are when the file changes on disk', async ({ 
 
   await page.getByRole('button', { name: 'Zoom in' }).click();
   await page.locator('#page-theme-button').click();
-  await page.getByRole('button', { name: 'Text' }).click();
+  await page.locator('#mode-text').click();
   await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
 
   // Word rewrites a document several times while saving it. None of those may

@@ -8,6 +8,8 @@ import {
 import { DocumentStateStore } from './documentState';
 import { loadValidatedDocx } from './docxLoader';
 import { getLog } from './log';
+import { convertDocxToPlainText, convertDocxToText } from './text/docxText';
+import { stripDocumentExtension } from '../shared/documentExtensions';
 import { clamp } from '../shared/format';
 import { DEFAULT_CHUNK_SIZE, splitIntoChunks } from './utils/chunks';
 import { getNonce } from './utils/getNonce';
@@ -220,9 +222,13 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         }
         break;
       case 'exportMarkdown':
-        if (typeof message.markdown === 'string') {
-          await this.saveMarkdown(entry.document.uri, message.markdown);
-        }
+        await this.saveMarkdown(entry.document);
+        break;
+      case 'copyMarkdown':
+        await this.copyToClipboard(entry.document, 'Markdown');
+        break;
+      case 'copyText':
+        await this.copyToClipboard(entry.document, 'plain text');
         break;
       case 'exportPdf':
         if (typeof message.html === 'string') {
@@ -336,7 +342,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
   private async saveHtml(sourceUri: vscode.Uri, html: string): Promise<void> {
     const defaultUri = sourceUri.with({
-      path: sourceUri.path.replace(/\.docx$/i, '') + '.html',
+      path: stripDocumentExtension(sourceUri.path) + '.html',
     });
     const target = await vscode.window.showSaveDialog({
       defaultUri,
@@ -361,9 +367,11 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     });
   }
 
-  private async saveMarkdown(sourceUri: vscode.Uri, markdown: string): Promise<void> {
+  private async saveMarkdown(document: DocxDocument): Promise<void> {
+    const sourceUri = document.uri;
+    const markdown = await this.toMarkdown(document);
     const defaultUri = sourceUri.with({
-      path: sourceUri.path.replace(/\.docx$/i, '') + '.md',
+      path: stripDocumentExtension(sourceUri.path) + '.md',
     });
     const target = await vscode.window.showSaveDialog({
       defaultUri,
@@ -388,9 +396,65 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     });
   }
 
+  /**
+   * Most of the time the content is wanted in an issue, a message or a code
+   * comment rather than in a file, which through the export dialog is a
+   * seven-step round trip through a file the user then deletes.
+   */
+  private async copyToClipboard(
+    document: DocxDocument,
+    format: 'Markdown' | 'plain text',
+  ): Promise<void> {
+    const name = path.basename(document.uri.path);
+    try {
+      const text = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Window, title: `ShowDocx: reading ${name}...` },
+        () => (format === 'Markdown'
+          ? this.toMarkdown(document)
+          : this.toPlainText(document)),
+      );
+      if (text === '') {
+        void vscode.window.showWarningMessage(`ShowDocx: ${name} has no text to copy.`);
+        return;
+      }
+      await vscode.env.clipboard.writeText(text);
+      void vscode.window.setStatusBarMessage(`ShowDocx copied ${name} as ${format}.`, 4000);
+    } catch (error: unknown) {
+      getLog().error(`Copying ${name} as ${format} failed.`, error);
+      void this.notify('error', `${name} could not be converted to ${format}.`);
+    }
+  }
+
+  /**
+   * The Markdown every caller gets: the export, the clipboard and the language
+   * model tool all read the same converter, so one document is one answer.
+   * Ordered lists are numbered for real here, unlike in a diff, because the
+   * numbers are part of what a reader is copying.
+   */
+  private async toMarkdown(document: DocxDocument): Promise<string> {
+    const { text, messages } = await convertDocxToText(document.data, {
+      stableOrderedNumbers: false,
+    });
+    this.logConversion(document, messages);
+    return text;
+  }
+
+  private async toPlainText(document: DocxDocument): Promise<string> {
+    const { text, messages } = await convertDocxToPlainText(document.data);
+    this.logConversion(document, messages);
+    return text;
+  }
+
+  private logConversion(document: DocxDocument, messages: readonly string[]): void {
+    const name = path.basename(document.uri.path);
+    for (const message of messages) {
+      getLog().warn(`${name}: ${message}`);
+    }
+  }
+
   private async exportPdf(sourceUri: vscode.Uri, html: string): Promise<void> {
     const defaultUri = sourceUri.with({
-      path: sourceUri.path.replace(/\.docx$/i, '') + '.html',
+      path: stripDocumentExtension(sourceUri.path) + '.html',
     });
 
     const target = await vscode.window.showSaveDialog({
@@ -544,12 +608,21 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         <button id="export-pdf-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
           <span class="codicon codicon-file-pdf"></span><span>PDF</span>
         </button>
+        <button id="copy-md-button" class="toolbar-button icon-button" type="button" title="Copy the document to the clipboard as Markdown" aria-label="Copy as Markdown">
+          <span class="codicon codicon-copy"></span>
+        </button>
+        <button id="copy-text-button" class="toolbar-button icon-button" type="button" title="Copy the document to the clipboard as plain text" aria-label="Copy as plain text">
+          <span class="codicon codicon-symbol-text"></span>
+        </button>
       </div>
       <button id="print-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
         <span class="codicon codicon-printer"></span><span>Print</span>
       </button>
       <button id="page-theme-button" class="toolbar-button icon-button" type="button" title="Page theme" aria-label="Page theme">
         <span class="codicon codicon-color-mode"></span>
+      </button>
+      <button id="fit-button" class="toolbar-button icon-button" type="button" title="Fit the page to the panel" aria-label="Fit the page to the panel">
+        <span class="codicon codicon-screen-full"></span>
       </button>
       <div class="toolbar-group zoom-controls" aria-label="Zoom controls">
         <button id="zoom-out" class="toolbar-button icon-button" type="button" title="Zoom out" aria-label="Zoom out">

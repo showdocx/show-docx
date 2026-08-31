@@ -28,6 +28,7 @@ const READING: StoredViewerState = {
   zoom: 150,
   scrollTop: 4200,
   pageTheme: 'sepia',
+  fitMode: 'width',
 };
 
 describe('Remembering where a document was left', () => {

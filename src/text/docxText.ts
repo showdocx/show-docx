@@ -48,3 +48,25 @@ export async function convertDocxToText(
     messages: result.messages.map((message) => message.message),
   };
 }
+
+/**
+ * The document as unformatted text: one paragraph per line, no markers at all.
+ * For pasting somewhere that would show Markdown syntax rather than render it.
+ */
+export async function convertDocxToPlainText(data: Uint8Array): Promise<DocxTextResult> {
+  const result = await mammoth.extractRawText({
+    buffer: Buffer.from(data.buffer, data.byteOffset, data.byteLength),
+  });
+  const text = result.value
+    .replaceAll('\r\n', '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .replaceAll(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return {
+    text: text === '' ? '' : `${text}\n`,
+    messages: result.messages.map((message) => message.message),
+  };
+}

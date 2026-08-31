@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { convertDocxToText } from '../diff/docxText';
+import { convertDocxToText } from '../text/docxText';
 import {
   ToolInputError,
   parseReadDocxInput,
