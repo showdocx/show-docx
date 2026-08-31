@@ -124,6 +124,36 @@ test('toggles comments sidebar and views notes', async ({ page }) => {
   await expect(page.locator('#comments-sidebar')).toBeHidden();
 });
 
+test('lists one card per annotation with the real author', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#comments-toggle').click();
+  await expect(page.locator('#comments-sidebar')).toBeVisible();
+
+  // The fixture holds exactly one comment, one insertion and one deletion.
+  await expect(page.locator('#comments-list .comment-card')).toHaveCount(3);
+  await expect(page.locator('#comment-count')).toHaveText('3');
+
+  const commentCard = page.locator('#comments-list .comment-comment');
+  await expect(commentCard).toHaveCount(1);
+  await expect(commentCard.locator('.comment-author')).toHaveText('Alice Reviewer');
+  await expect(commentCard.locator('.comment-body')).toHaveText('Please clarify this sentence.');
+
+  await expect(page.locator('#comments-list .comment-insertion .comment-body'))
+    .toHaveText('an inserted phrase');
+  await expect(page.locator('#comments-list .comment-deletion .comment-body'))
+    .toHaveText('a deleted phrase');
+});
+
+test('shows the error state when a chunked transfer loses chunks', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?transfer=broken');
+
+  await expect(page.locator('#error-state')).toBeVisible();
+  await expect(page.locator('#loading')).toBeHidden();
+  await expect(page.locator('#retry-button')).toBeVisible();
+});
+
 test('shows a user-safe error for corrupted documents', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?fixture=corrupted.docx');
 

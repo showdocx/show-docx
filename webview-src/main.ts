@@ -49,6 +49,10 @@ let chunkTransfer: {
   chunks: Array<Uint8Array | undefined>;
 } | undefined;
 let scrollTimer: number | undefined;
+let transferWatchdog: number | undefined;
+
+/** A chunked transfer that makes no progress for this long is treated as failed. */
+const TRANSFER_TIMEOUT_MS = 30_000;
 
 const getActiveContainer = (): HTMLElement => (state.value.mode === 'visual' ? visualContainer : textContainer);
 
@@ -99,7 +103,10 @@ toolbar.updateMode(state.value.mode);
 zoom.apply();
 
 window.addEventListener('message', (event: MessageEvent<IncomingMessage>) => {
-  void handleMessage(event.data);
+  handleMessage(event.data).catch((error: unknown) => {
+    console.error('ShowDocx could not process a host message:', error);
+    abortTransfer(toRenderError(error));
+  });
 });
 
 window.addEventListener('keydown', (event) => {
@@ -161,6 +168,8 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
     case 'document':
       if (message.data) {
         const meta = readDocumentMeta(message);
+        // A single-message document supersedes any transfer still in flight.
+        clearTransfer();
         await acceptDocument(decodeBase64(message.data), meta);
       }
       break;
@@ -172,6 +181,7 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
         totalChunks,
         chunks: new Array<Uint8Array | undefined>(totalChunks),
       };
+      armTransferWatchdog();
       toolbar.updateDocument(meta.fileName, meta.fileSize);
       showLoading(
         meta.reload ? 'Reloading document...' : 'Receiving document...',
@@ -184,13 +194,14 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
       break;
     case 'documentEnd':
       if (chunkTransfer && chunkTransfer.meta.transferId === message.transferId) {
-        const bytes = joinChunks(chunkTransfer.chunks, chunkTransfer.meta.fileSize);
-        const meta = chunkTransfer.meta;
-        chunkTransfer = undefined;
-        await acceptDocument(bytes, meta);
+        const pending = chunkTransfer;
+        clearTransfer();
+        const bytes = joinChunks(pending.chunks, pending.meta.fileSize);
+        await acceptDocument(bytes, pending.meta);
       }
       break;
     case 'hostError':
+      clearTransfer();
       showError(message.message ?? 'ShowDocx could not reload the document.');
       break;
     case 'settingsChanged':
@@ -247,9 +258,44 @@ function receiveChunk(message: IncomingMessage): void {
   }
 
   chunkTransfer.chunks[message.index] = decodeBase64(message.data);
+  armTransferWatchdog();
   const received = chunkTransfer.chunks.filter(Boolean).length;
   const percent = 5 + Math.round((received / chunkTransfer.totalChunks) * 45);
   showLoading(`Receiving document... ${received}/${chunkTransfer.totalChunks}`, percent);
+}
+
+/**
+ * (Re)starts the stall timer for the in-flight chunked transfer. Called on every
+ * chunk so a slow but healthy transfer is never cut short.
+ */
+function armTransferWatchdog(): void {
+  clearTransferWatchdog();
+  transferWatchdog = window.setTimeout(() => {
+    transferWatchdog = undefined;
+    if (chunkTransfer) {
+      abortTransfer('The document transfer stopped responding. Try reloading the document.');
+    }
+  }, TRANSFER_TIMEOUT_MS);
+}
+
+function clearTransferWatchdog(): void {
+  if (transferWatchdog !== undefined) {
+    window.clearTimeout(transferWatchdog);
+    transferWatchdog = undefined;
+  }
+}
+
+/** Drops any in-flight chunked transfer and its timer. */
+function clearTransfer(): void {
+  clearTransferWatchdog();
+  chunkTransfer = undefined;
+}
+
+/** Fails an in-flight transfer, showing the error state with its retry button. */
+function abortTransfer(message: string): void {
+  clearTransfer();
+  showError(message);
+  vscode.postMessage({ type: 'error', message });
 }
 
 async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<void> {

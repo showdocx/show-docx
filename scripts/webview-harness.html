@@ -72,6 +72,21 @@
           settings
         };
 
+        if (params.get('transfer') === 'broken') {
+          // Announce a chunked transfer, send only the first chunk, then end it.
+          const chunkSize = 1024;
+          const totalChunks = Math.ceil(bytes.byteLength / chunkSize);
+          dispatch({ type: 'documentStart', ...meta, totalChunks });
+          dispatch({
+            type: 'documentChunk',
+            transferId: 1,
+            index: 0,
+            data: encodeBase64(bytes.subarray(0, chunkSize))
+          });
+          dispatch({ type: 'documentEnd', transferId: 1 });
+          return;
+        }
+
         if (params.get('transfer') === 'chunks') {
           const chunkSize = 1024;
           const totalChunks = Math.ceil(bytes.byteLength / chunkSize);
