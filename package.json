@@ -40,7 +40,8 @@
     "document"
   ],
   "activationEvents": [
-    "onCustomEditor:showDocx.docxViewer"
+    "onCustomEditor:showDocx.docxViewer",
+    "onLanguageModelTool:showdocx_readDocx"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -211,7 +212,34 @@
           "description": "Automatically reload the preview when the DOCX file changes on disk."
         }
       }
-    }
+    },
+    "languageModelTools": [
+      {
+        "name": "showdocx_readDocx",
+        "displayName": "Read Word document",
+        "toolReferenceName": "docx",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(file-word)",
+        "userDescription": "Read the text of a Word (.docx) document in this workspace.",
+        "modelDescription": "Read the text content of a Word (.docx) document in the current workspace. Use this whenever you need the contents of a .docx file: reading it directly returns a binary ZIP archive, not text. Returns Markdown: headings, lists, tables and links are preserved; embedded images are replaced by a short placeholder. Deletions in tracked changes are not included, and insertions appear as accepted. Only documents inside the open workspace can be read.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Path of the .docx file, either absolute or relative to a workspace folder."
+            },
+            "maxCharacters": {
+              "type": "number",
+              "description": "Maximum number of characters to return. Defaults to 60000. If the document is longer the result is cut at a line boundary and says how much was left out."
+            }
+          },
+          "required": [
+            "filePath"
+          ]
+        }
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run verify && npm run build",

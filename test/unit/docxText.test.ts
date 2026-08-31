@@ -2,14 +2,14 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { describe, it } from 'mocha';
-import { convertDocxToDiffText } from '../../src/diff/docxText';
+import { convertDocxToText } from '../../src/diff/docxText';
 import { fingerprintBytes, fingerprintText } from '../../src/diff/fingerprint';
 
 const FIXTURES = path.join(__dirname, '..', '..', '..', 'test', 'fixtures');
 
 async function convert(fixture: string): Promise<string> {
   const data = await readFile(path.join(FIXTURES, fixture));
-  const result = await convertDocxToDiffText(new Uint8Array(data));
+  const result = await convertDocxToText(new Uint8Array(data));
   return result.text;
 }
 

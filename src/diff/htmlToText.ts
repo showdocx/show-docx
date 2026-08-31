@@ -3,8 +3,11 @@
  * compares. Kept free of Node and VS Code imports so the unit tests exercise the
  * real functions rather than copies of them.
  *
- * Every rule here exists to keep a diff readable. Word rewrites a DOCX wholesale
- * on every save, so a representation that shifts when the document did not turns
+ * Two callers read this text: the diff editor, and the language model tool. The
+ * rules below are shared, because both want structure without noise.
+ *
+ * Most of them exist to keep a diff readable. Word rewrites a DOCX wholesale on
+ * every save, so a representation that shifts when the document did not turns
  * each revision into a full rewrite:
  *
  * - one line per block, so a changed paragraph is one changed line;
@@ -68,7 +71,17 @@ const NAMED_ENTITIES: Record<string, string> = {
   quot: '"',
 };
 
+export interface TextOptions {
+  /**
+   * Write every ordered item as `1.`. Markdown still renders 1, 2, 3, and a
+   * list renumbered by an insertion stays a one-line diff. Turn it off where the
+   * numbers themselves are the information a reader needs.
+   */
+  readonly stableOrderedNumbers?: boolean;
+}
+
 interface RenderContext {
+  readonly options: Required<TextOptions>;
   /** Prefix repeated on every line inside a blockquote. */
   readonly quote: string;
   /** Leading whitespace for content nested under a list item. */
@@ -102,9 +115,14 @@ class LineWriter {
   }
 }
 
-export function htmlToDiffText(html: string): string {
+export function htmlToText(html: string, options: TextOptions = {}): string {
   const writer = new LineWriter();
-  renderBlocks(parseHtml(html), writer, { quote: '', indent: '', tight: false });
+  renderBlocks(parseHtml(html), writer, {
+    quote: '',
+    indent: '',
+    tight: false,
+    options: { stableOrderedNumbers: options.stableOrderedNumbers ?? true },
+  });
   return writer.toString();
 }
 
@@ -389,8 +407,12 @@ function renderList(node: ElementNode, writer: LineWriter, context: RenderContex
   }
 
   writer.blank(context);
-  const marker = node.name === 'ol' ? '1.' : '-';
+  const ordered = node.name === 'ol';
+  const stable = context.options.stableOrderedNumbers;
+  let position = 0;
   for (const item of items) {
+    position += 1;
+    const marker = ordered ? `${stable ? 1 : position}.` : '-';
     renderListItem(item, writer, { ...context, tight: true }, marker);
   }
   writer.blank({ ...context, tight: false });
@@ -425,7 +447,7 @@ function renderListItem(
 }
 
 function renderTable(node: ElementNode, writer: LineWriter, context: RenderContext): void {
-  const rows = collectRows(node).map(renderRow);
+  const rows = collectRows(node).map((row) => renderRow(row, context));
   if (rows.length === 0) {
     return;
   }
@@ -462,13 +484,13 @@ function collectRows(node: ElementNode): ElementNode[] {
   return rows;
 }
 
-function renderRow(row: ElementNode): string[] {
+function renderRow(row: ElementNode, context: RenderContext): string[] {
   const cells: string[] = [];
   for (const child of row.children) {
     if (child.type !== 'element' || (child.name !== 'td' && child.name !== 'th')) {
       continue;
     }
-    cells.push(renderCell(child));
+    cells.push(renderCell(child, context));
     // A merged cell still occupies its columns, so the row stays aligned with
     // the rows above and below it.
     const span = Number.parseInt(child.attributes.colspan ?? '1', 10);
@@ -479,9 +501,9 @@ function renderRow(row: ElementNode): string[] {
   return cells;
 }
 
-function renderCell(cell: ElementNode): string {
+function renderCell(cell: ElementNode, context: RenderContext): string {
   const writer = new LineWriter();
-  renderBlocks(cell.children, writer, { quote: '', indent: '', tight: true });
+  renderBlocks(cell.children, writer, { ...context, quote: '', indent: '', tight: true });
   const flattened = normalizeInline(writer.toString().replaceAll('\n', ' '));
   return flattened.replaceAll('|', String.raw`\|`);
 }

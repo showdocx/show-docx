@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { convertDocxToDiffText } from './docxText';
+import { convertDocxToText } from './docxText';
 import { getLog } from '../log';
 
 /**
@@ -98,7 +98,7 @@ implements vscode.TextDocumentContentProvider, vscode.Disposable {
       return '';
     }
 
-    const { text, messages } = await convertDocxToDiffText(data);
+    const { text, messages } = await convertDocxToText(data);
     for (const message of messages) {
       getLog().warn(`${path.basename(source.uri.path)}: ${message}`);
     }

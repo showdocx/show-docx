@@ -1,10 +1,11 @@
 import * as mammoth from 'mammoth';
 import { fingerprintBytes } from './fingerprint';
-import { htmlToDiffText } from './htmlToText';
+import { htmlToText } from './htmlToText';
+import type { TextOptions } from './htmlToText';
 
 /**
- * Converts a DOCX to the readable text the diff editor compares. mammoth runs in
- * the extension host here rather than the webview: the diff has no webview.
+ * Converts a DOCX to readable text in the extension host, for the callers that
+ * have no webview to render in: the diff editor, and the language model tool.
  */
 
 /**
@@ -24,7 +25,10 @@ export interface DocxTextResult {
   readonly messages: string[];
 }
 
-export async function convertDocxToDiffText(data: Uint8Array): Promise<DocxTextResult> {
+export async function convertDocxToText(
+  data: Uint8Array,
+  options: TextOptions = {},
+): Promise<DocxTextResult> {
   const result = await mammoth.convertToHtml(
     { buffer: Buffer.from(data.buffer, data.byteOffset, data.byteLength) },
     {
@@ -40,7 +44,7 @@ export async function convertDocxToDiffText(data: Uint8Array): Promise<DocxTextR
   );
 
   return {
-    text: htmlToDiffText(result.value),
+    text: htmlToText(result.value, options),
     messages: result.messages.map((message) => message.message),
   };
 }

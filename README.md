@@ -19,6 +19,7 @@
 - **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes, and document sizing — with `docx-preview`. Pages are broken where the document declares a break, not repaginated.
 - **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
 - **Compare with HEAD** opens a `.docx` and its committed revision side by side in VS Code's own diff editor. Git reports a DOCX as `Binary files differ`; ShowDocx converts both revisions to readable text so the diff shows what actually changed.
+- **Readable by AI agents in your editor**: ShowDocx registers a language model tool, so Copilot agent mode and anything else using the same API can read a `.docx` instead of seeing binary. ShowDocx calls no model and sends nothing anywhere.
 - **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
 - **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
 - **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions. Available in Visual mode; `mammoth` does not carry annotations into Text mode.
@@ -52,6 +53,16 @@ Right-click a `.docx` in the Explorer and choose **Compare with HEAD**, or run i
 The text is shaped for diffing rather than for reading: one line per paragraph and per table row, ordered list items all written `1.`, and embedded images reduced to a short digest of their bytes. Word rewrites the whole package on every save, so without that normalization each revision would read as a full rewrite. A one-word edit shows up as one changed line.
 
 Requires `git` on the `PATH`, or the `git.path` setting. Deletions in tracked changes are not shown, for the same reason Text mode does not show them.
+
+### Letting an agent read a document
+
+An AI agent running in your editor cannot read a `.docx`: opening one returns a ZIP archive. ShowDocx registers a `showdocx_readDocx` language model tool that returns the document as Markdown, so the agent can read `spec.docx` the way it reads any other file. Reference it in a prompt as `#docx`.
+
+**ShowDocx calls no model.** Your own agent, on your own subscription, asks this extension for text it already knows how to produce. There is no API key, no cost and no outbound request — the privacy guarantee below holds exactly as written.
+
+Only documents inside the open workspace can be read, and only `.docx` files. A model's arguments can be steered by whatever it has read, so the tool treats a path as a request rather than a permission.
+
+The tool needs VS Code 1.95 or later. ShowDocx still declares support from 1.85, detects the API at runtime, and simply does not register the tool where it is absent.
 
 ## Commands
 

@@ -4,6 +4,7 @@ import { DIFF_SCHEME, DocxDiffContentProvider } from './diff/diffProvider';
 import { DocxEditorProvider } from './docxEditorProvider';
 import { validateDocxBytes } from './docxLoader';
 import { disposeLog, getLog } from './log';
+import { registerReadDocxTool } from './lm/readDocxTool';
 import { watchFile } from './watchFile';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -35,6 +36,18 @@ export function activate(context: vscode.ExtensionContext): void {
     const editorUri = vscode.window.activeTextEditor?.document.uri;
     return isComparableDocx(editorUri) ? editorUri : undefined;
   };
+
+  // Undefined on a VS Code without the language model tool API, which is the
+  // supported case rather than a failure: engines stays at ^1.85.0.
+  const readDocxTool = registerReadDocxTool({
+    workspaceFolders: () => (vscode.workspace.workspaceFolders ?? [])
+      .filter((folder) => folder.uri.scheme === 'file')
+      .map((folder) => folder.uri.fsPath),
+    read: (uri) => provider.readDocument(uri),
+  });
+  if (readDocxTool) {
+    context.subscriptions.push(readDocxTool);
+  }
 
   context.subscriptions.push(
     log,

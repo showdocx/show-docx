@@ -12,6 +12,12 @@ All notable changes to ShowDocx are documented in this file.
 
   This is the first feature that needs mammoth in the extension host, which grows `dist/extension.js` from 19 KB to 577 KB. Lazy-loading it is tracked in #30.
 
+- **AI agents in your editor can read `.docx` files.** ShowDocx registers a `showdocx_readDocx` language model tool that returns a document as Markdown, so Copilot agent mode — or anything using the same API — reads `spec.docx` instead of giving up on a ZIP archive. Reference it in a prompt as `#docx`. ([#36](https://github.com/showdocx/show-docx/issues/36))
+
+  ShowDocx calls no model and makes no outbound request: the user's own agent asks this extension for text. Only `.docx` files inside the open workspace can be read, because a model's arguments can be steered by whatever it has read.
+
+  The API needs VS Code 1.95, and `engines` stays at `^1.85.0`. The API is detected at runtime and the tool is simply not registered where it is absent.
+
 ### Fixed
 
 - Export as PDF now prints the page layout it renders on screen. It built the printable file from the semantic text view, so page breaks, headers, footers and page geometry were all discarded by the one command whose whole purpose is reproducing them. Starting the export from Text mode renders the page layout for it, and a document Visual mode cannot render still falls back to the text view. ([#34](https://github.com/showdocx/show-docx/issues/34))
