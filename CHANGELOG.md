@@ -6,6 +6,14 @@ All notable changes to ShowDocx are documented in this file.
 
 ### Added
 
+- **Search inside every Word document in the workspace.** VS Code's own search skips these files because they are binary, so a folder of forty specifications could not answer "which one mentions this clause?" without opening each by hand. Matches appear as you type, with the line they were found on; choosing one opens the document with the term already in its search bar. Text is cached against each file's modification time, so only the first search reads the files. ([#43](https://github.com/showdocx/show-docx/issues/43))
+
+  Headers and footers are searched, because that is where a document number or title usually lives. Field codes and text removed by a tracked change are not: neither is text the reader sees.
+
+- **`showDocx.exportLocation`**, which can write an export next to the document instead of asking every time. Anyone converting the same documents repeatedly was filling in an identical save dialog with no decision behind it. Writing over an existing file still asks first. ([#42](https://github.com/showdocx/show-docx/issues/42))
+
+### Added
+
 - **Compare a DOCX with its committed revision in the diff editor.** Right-click a `.docx` and choose **Compare with HEAD**, or run it from the editor title bar or the Command Palette. Git reports a DOCX as `Binary files differ` and the diff editor cannot open one, so both revisions are converted to readable text and served to the normal diff editor through a virtual read-only `showdocx-diff` document. ([#35](https://github.com/showdocx/show-docx/issues/35))
 
   The text is normalized for diffing: one line per paragraph and per table row, ordered items all written `1.` so inserting one does not renumber the rest, and embedded images reduced to a digest of their bytes. Word rewrites the whole package on every save, so without this a one-word edit reads as a full rewrite; with it, it is one changed line.

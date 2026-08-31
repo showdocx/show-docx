@@ -274,7 +274,7 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
       applyPageTheme(state.nextPageTheme());
       break;
     case 'search':
-      search.open();
+      search.open(message.query);
       break;
     case 'requestExportHtml':
       await exportHtml();

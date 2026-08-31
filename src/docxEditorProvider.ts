@@ -39,6 +39,12 @@ interface WebviewMessage {
   detail?: string;
 }
 
+interface ExportOptions {
+  readonly extension: string;
+  readonly filters: Record<string, string[]>;
+  readonly title: string;
+}
+
 interface PanelEntry {
   panel: vscode.WebviewPanel;
   document: DocxDocument;
@@ -46,6 +52,8 @@ interface PanelEntry {
   disposed: boolean;
   transferId: number;
   subscriptions: vscode.Disposable[];
+  /** Messages that arrived before the webview could receive them. */
+  pending: unknown[];
 }
 
 export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<DocxDocument> {
@@ -119,6 +127,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       disposed: false,
       transferId: 0,
       subscriptions: [],
+      pending: [],
     };
     this.panels.add(entry);
     this.activeEntry = entry;
@@ -163,12 +172,20 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     return this.getActiveEntry()?.document.uri;
   }
 
-  public sendToActivePanel(type: string): boolean {
+  public sendToActivePanel(type: string, payload?: Record<string, unknown>): boolean {
     const entry = this.getActiveEntry();
     if (!entry) {
       return false;
     }
-    void entry.panel.webview.postMessage({ type });
+    const message = { type, ...payload };
+    if (entry.ready) {
+      void entry.panel.webview.postMessage(message);
+    } else {
+      // A command can reach a viewer that is still loading — opening a document
+      // from the workspace search does exactly that. Holding the message is the
+      // difference between the search opening at the match and doing nothing.
+      entry.pending.push(message);
+    }
     return true;
   }
 
@@ -209,10 +226,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
   private async onMessage(entry: PanelEntry, message: WebviewMessage): Promise<void> {
     switch (message.type) {
-      case 'ready':
+      case 'ready': {
         entry.ready = true;
         await this.sendDocument(entry, false);
+        const pending = entry.pending.splice(0);
+        for (const queued of pending) {
+          void entry.panel.webview.postMessage(queued);
+        }
         break;
+      }
       case 'retry':
         await this.sendDocument(entry, true);
         break;
@@ -341,51 +363,87 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 
   private async saveHtml(sourceUri: vscode.Uri, html: string): Promise<void> {
-    const defaultUri = sourceUri.with({
-      path: stripDocumentExtension(sourceUri.path) + '.html',
+    const target = await this.writeExport(sourceUri, html, {
+      extension: '.html',
+      filters: { 'HTML document': ['html', 'htm'] },
+      title: 'Export as HTML',
     });
-    const target = await vscode.window.showSaveDialog({
-      defaultUri,
-      filters: {
-        'HTML document': ['html', 'htm'],
-      },
-      saveLabel: 'Export',
-      title: 'Export DOCX as HTML',
-    });
-    if (!target) {
-      return;
+    if (target) {
+      this.announceExport(target);
     }
-
-    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(html));
-    void vscode.window.showInformationMessage(
-      `ShowDocx exported ${path.basename(target.path)}.`,
-      'Open File',
-    ).then((choice) => {
-      if (choice === 'Open File') {
-        void vscode.commands.executeCommand('vscode.open', target);
-      }
-    });
   }
 
   private async saveMarkdown(document: DocxDocument): Promise<void> {
-    const sourceUri = document.uri;
     const markdown = await this.toMarkdown(document);
-    const defaultUri = sourceUri.with({
-      path: stripDocumentExtension(sourceUri.path) + '.md',
+    const target = await this.writeExport(document.uri, markdown, {
+      extension: '.md',
+      filters: { 'Markdown document': ['md', 'markdown'] },
+      title: 'Export as Markdown',
     });
-    const target = await vscode.window.showSaveDialog({
-      defaultUri,
-      filters: {
-        'Markdown document': ['md', 'markdown'],
-      },
-      saveLabel: 'Export',
-      title: 'Export DOCX as Markdown',
-    });
+    if (target) {
+      this.announceExport(target);
+    }
+  }
+
+  /**
+   * Writes an export and says where it went. Which file that is depends on
+   * showDocx.exportLocation: "ask" opens the save dialog, "alongside" writes
+   * next to the document, because filling in the same dialog on every export of
+   * the same file is friction with no decision behind it.
+   */
+  private async writeExport(
+    sourceUri: vscode.Uri,
+    contents: string,
+    options: ExportOptions,
+  ): Promise<vscode.Uri | undefined> {
+    const target = await this.resolveExportTarget(sourceUri, options);
     if (!target) {
-      return;
+      return undefined;
+    }
+    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(contents));
+    return target;
+  }
+
+  private async resolveExportTarget(
+    sourceUri: vscode.Uri,
+    options: ExportOptions,
+  ): Promise<vscode.Uri | undefined> {
+    const defaultUri = sourceUri.with({
+      path: stripDocumentExtension(sourceUri.path) + options.extension,
+    });
+    if (this.getExportLocation() === 'ask') {
+      return vscode.window.showSaveDialog({
+        defaultUri,
+        filters: options.filters,
+        saveLabel: 'Export',
+        title: options.title,
+      });
     }
 
-    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(markdown));
+    // Skipping the dialog must not mean silently replacing someone's work.
+    if (await this.exists(defaultUri)) {
+      const choice = await vscode.window.showWarningMessage(
+        `${path.basename(defaultUri.path)} already exists. Replace it?`,
+        { modal: true },
+        'Replace',
+      );
+      if (choice !== 'Replace') {
+        return undefined;
+      }
+    }
+    return defaultUri;
+  }
+
+  private async exists(uri: vscode.Uri): Promise<boolean> {
+    try {
+      await vscode.workspace.fs.stat(uri);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private announceExport(target: vscode.Uri): void {
     void vscode.window.showInformationMessage(
       `ShowDocx exported ${path.basename(target.path)}.`,
       'Open File',
@@ -453,22 +511,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 
   private async exportPdf(sourceUri: vscode.Uri, html: string): Promise<void> {
-    const defaultUri = sourceUri.with({
-      path: stripDocumentExtension(sourceUri.path) + '.html',
-    });
-
-    const target = await vscode.window.showSaveDialog({
-      defaultUri,
-      filters: {
-        'Printable HTML': ['html', 'htm'],
-      },
-      saveLabel: 'Save',
-      title: 'Save printable HTML, then use Print to PDF in your browser',
-    });
-    if (!target) {
-      return;
-    }
-
     const printHtml = html.includes('</body>')
       ? html.replace(
         '</body>',
@@ -476,7 +518,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       )
       : html;
 
-    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(printHtml));
+    const target = await this.writeExport(sourceUri, printHtml, {
+      extension: '.html',
+      filters: { 'Printable HTML': ['html', 'htm'] },
+      title: 'Save printable HTML, then use Print to PDF in your browser',
+    });
+    if (!target) {
+      return;
+    }
     await vscode.env.openExternal(target);
 
     void vscode.window.showInformationMessage(
@@ -524,6 +573,13 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   /** Reads a DOCX under the viewer's own size and signature checks. */
   public readDocument(uri: vscode.Uri): Promise<Uint8Array> {
     return loadValidatedDocx(uri, this.maxFileSize, vscode.workspace.fs);
+  }
+
+  private getExportLocation(): 'ask' | 'alongside' {
+    return vscode.workspace.getConfiguration('showDocx')
+      .get<'ask' | 'alongside'>('exportLocation', 'ask') === 'alongside'
+      ? 'alongside'
+      : 'ask';
   }
 
   public get maxFileSize(): number {

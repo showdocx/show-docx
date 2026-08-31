@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { compareWithHead, isComparableDocx, readDocxAtRef } from './diff/compareWithHead';
 import { DIFF_SCHEME, DocxDiffContentProvider } from './diff/diffProvider';
 import { DocxEditorProvider } from './docxEditorProvider';
+import { DocumentTextIndex, showWorkspaceSearch } from './search/workspaceSearch';
 import { validateDocxBytes } from './docxLoader';
 import { disposeLog, getLog } from './log';
 import { registerReadDocxTool } from './lm/readDocxTool';
@@ -11,6 +12,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const log = getLog();
   log.info('ShowDocx activated.');
   const provider = DocxEditorProvider.register(context);
+  const documentText = new DocumentTextIndex();
 
   const diffProvider = new DocxDiffContentProvider({
     readWorkingTree: (uri) => provider.readDocument(uri),
@@ -84,6 +86,16 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('showDocx.search', () => {
       provider.sendToActivePanel('search');
+    }),
+    vscode.commands.registerCommand('showDocx.searchWorkspace', () => {
+      showWorkspaceSearch(documentText);
+    }),
+    // Opens the in-document search already carrying a query. Not in the command
+    // palette: it takes an argument, and the workspace search is what sends it.
+    vscode.commands.registerCommand('showDocx.searchFor', (query?: unknown) => {
+      provider.sendToActivePanel('search', {
+        query: typeof query === 'string' ? query : undefined,
+      });
     }),
     vscode.commands.registerCommand('showDocx.zoomIn', () => {
       provider.sendToActivePanel('zoomIn');

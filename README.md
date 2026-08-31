@@ -20,6 +20,7 @@
 - **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
 - **Compare with HEAD** opens a `.docx` and its committed revision side by side in VS Code's own diff editor. Git reports a DOCX as `Binary files differ`; ShowDocx converts both revisions to readable text so the diff shows what actually changed.
 - **Readable by AI agents in your editor**: ShowDocx registers a language model tool, so Copilot agent mode and anything else using the same API can read a `.docx` instead of seeing binary. ShowDocx calls no model and sends nothing anywhere.
+- **Search inside every Word document in the workspace**. VS Code's own search skips these files because they are binary, so a folder of specifications cannot answer "which one mentions this clause?" without opening each by hand.
 - **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
 - **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
 - **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions. Available in Visual mode; `mammoth` does not carry annotations into Text mode.
@@ -49,6 +50,14 @@
 
 To choose ShowDocx explicitly, right-click a `.docx` file and select **Open with ShowDocx**.
 
+### Searching across documents
+
+Run **ShowDocx: Search in Word Documents** from the Command Palette and type. Matches from every Word document in the workspace appear as you type, with the line they were found on; choosing one opens the document with the term already in its search bar.
+
+Text is read straight out of each document's XML and cached against the file's modification time, so the first search reads the files and later ones are immediate. Headers and footers are searched too — that is where a document number or title usually lives. Field codes and text removed by a tracked change are not, because neither is text the reader sees.
+
+The API that would put these results in VS Code's own search panel is still proposed, so this is a separate command for now.
+
 ### Comparing revisions
 
 Right-click a `.docx` in the Explorer and choose **Compare with HEAD**, or run it from the editor title bar or the Command Palette. Both revisions open in the normal diff editor as text.
@@ -73,6 +82,7 @@ The tool needs VS Code 1.95 or later. ShowDocx still declares support from 1.85,
 | --- | --- |
 | `ShowDocx: Compare with HEAD` | Compare the document with its committed revision in the diff editor |
 | `ShowDocx: Find in Document` | Open in-document search bar (`Ctrl/Cmd + F`) |
+| `ShowDocx: Search in Word Documents` | Search inside every Word document in the workspace |
 | `ShowDocx: Export as HTML` | Export sanitized semantic HTML |
 | `ShowDocx: Export as Markdown` | Export clean Markdown document (`.md`) |
 | `ShowDocx: Copy as Markdown` | Put the document on the clipboard as Markdown |
@@ -151,7 +161,7 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 - Markdown output — exported, copied, or read by an agent — replaces an embedded image with a short placeholder rather than inlining megabytes of base64.
 - Text mode shows tracked changes as accepted: `mammoth` drops deletions and inlines insertions. The viewer says so in its rendering notes; use Visual mode to see the markup.
 - The comments sidebar reads annotations from the Visual-mode render, so it is empty in Text mode.
-- Search matches at most 2000 results per query, shown as `2000+`.
+- Search matches at most 2000 results per query, shown as `2000+`. Workspace search shows at most 300 matches, and at most 20 per document.
 - Table of contents, bookmarks, advanced Word fields, and some hyperlinks are limited by the open-source rendering engines.
 - Visual mode prioritizes page fidelity, but highly complex Word layouts may differ from Microsoft Word.
 - HTML export is semantic and intentionally does not reproduce the exact page layout; the PDF export does.

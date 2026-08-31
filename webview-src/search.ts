@@ -58,8 +58,15 @@ export class SearchController {
     return !this.bar.classList.contains('hidden');
   }
 
-  public open(): void {
+  /**
+   * Opens the search bar, optionally on a query chosen elsewhere — the
+   * workspace search hands over the term it found the document by.
+   */
+  public open(query?: string): void {
     this.bar.classList.remove('hidden');
+    if (query !== undefined && query !== '') {
+      this.input.value = query;
+    }
     this.input.focus();
     this.input.select();
     if (this.input.value) {

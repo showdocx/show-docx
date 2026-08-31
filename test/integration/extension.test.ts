@@ -15,6 +15,8 @@ describe('ShowDocx extension', () => {
       'showDocx.exportMarkdown',
       'showDocx.exportPdf',
       'showDocx.search',
+      'showDocx.searchWorkspace',
+      'showDocx.searchFor',
       'showDocx.zoomIn',
       'showDocx.zoomOut',
       'showDocx.zoomReset',

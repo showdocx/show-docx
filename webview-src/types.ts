@@ -50,6 +50,7 @@ export interface DocumentMeta {
   reload: boolean;
   /** Where this document was last left, from a previous session. */
   savedState?: ViewerState;
+  query?: string;
 }
 
 export interface IncomingMessage {
@@ -78,6 +79,7 @@ export interface IncomingMessage {
   fileSize?: number;
   settings?: ViewerSettings;
   savedState?: ViewerState;
+  query?: string;
   reload?: boolean;
   data?: string;
   index?: number;
