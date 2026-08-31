@@ -6,6 +6,8 @@ All notable changes to ShowDocx are documented in this file.
 
 ### Added
 
+- **Third-party notices.** ShowDocx bundles twenty-five libraries, all under permissive licences, and each of those licences asks that its notice travels with the copies. `THIRD-PARTY-NOTICES.md` now ships in the extension, generated from what the bundles actually contain rather than from what happens to be installed. The LICENSE also names its copyright holder, where it previously said only "contributors".
+
 - **Compare a DOCX with its committed revision in the diff editor.** Right-click a `.docx` and choose **Compare with HEAD**, or run it from the editor title bar or the Command Palette. Git reports a DOCX as `Binary files differ` and the diff editor cannot open one, so both revisions are converted to readable text and served to the normal diff editor through a virtual read-only `showdocx-diff` document. ([#35](https://github.com/showdocx/show-docx/issues/35))
 
   The text is normalized for diffing: one line per paragraph and per table row, ordered items all written `1.` so inserting one does not renumber the rest, and embedded images reduced to a digest of their bytes. Word rewrites the whole package on every save, so without this a one-word edit reads as a full rewrite; with it, it is one changed line.
