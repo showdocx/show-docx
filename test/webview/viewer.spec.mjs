@@ -146,6 +146,14 @@ test('lists one card per annotation with the real author', async ({ page }) => {
     .toHaveText('a deleted phrase');
 });
 
+test('leaves Ctrl+P to VS Code Quick Open', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?mode=text');
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+
+  await page.keyboard.press('Control+p');
+  expect(await page.evaluate(() => window.__showDocxTest.printCount)).toBe(0);
+});
+
 test('warns that the text view shows tracked changes as accepted', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx&mode=text');
   await expect(page.locator('#text-container')).toContainText('Reviewed Document');

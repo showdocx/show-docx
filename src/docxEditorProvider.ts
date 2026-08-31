@@ -6,6 +6,7 @@ import {
   InvalidDocxError,
 } from './errors';
 import { loadValidatedDocx } from './docxLoader';
+import { getLog } from './log';
 import { DEFAULT_CHUNK_SIZE, splitIntoChunks } from './utils/chunks';
 import { getNonce } from './utils/getNonce';
 import { getWebviewUri } from './utils/getWebviewUri';
@@ -25,6 +26,8 @@ interface WebviewMessage {
   markdown?: string;
   href?: string;
   message?: string;
+  /** Raw diagnostic text for the log channel. Never shown to the user. */
+  detail?: string;
 }
 
 interface PanelEntry {
@@ -68,7 +71,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     _token: vscode.CancellationToken,
   ): Promise<DocxDocument> {
     const settings = this.getSettings();
-    const data = await this.loadDocument(uri);
+    const name = path.basename(uri.path);
+    let data: Uint8Array;
+    try {
+      data = await this.loadDocument(uri);
+    } catch (error: unknown) {
+      getLog().error(`Opening ${name} failed.`, error);
+      throw error;
+    }
+    getLog().info(`Opened ${name} (${data.byteLength} bytes).`);
     const host = this.createDocumentHost(settings.autoReload);
     const document = new DocxDocument(uri, data, host);
     if (settings.autoReload) {
@@ -134,7 +145,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     ));
     entry.subscriptions.push(document.onDidError(
       (error) => {
-        void vscode.window.showWarningMessage(`ShowDocx: ${this.toUserMessage(error)}`);
+        getLog().error('Reloading the document failed.', error);
+        void this.notify('warning', this.toUserMessage(error));
       },
     ));
 
@@ -204,8 +216,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         }
         break;
       case 'error':
-        void vscode.window.showErrorMessage(
-          message.message ? `ShowDocx: ${message.message}` : 'ShowDocx failed to render the document.',
+        getLog().error(
+          `Rendering ${path.basename(entry.document.uri.path)} failed: ${message.message ?? 'unknown error'}`,
+        );
+        if (message.detail) {
+          getLog().error(message.detail);
+        }
+        void this.notify(
+          'error',
+          message.message ?? 'ShowDocx failed to render the document.',
         );
         break;
       default:
@@ -553,8 +572,21 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 </html>`;
   }
 
+  /**
+   * Shows a short notification with a Show Log action. The detail behind it is
+   * already in the log channel — never put it in the message itself.
+   */
+  private async notify(kind: 'error' | 'warning', message: string): Promise<void> {
+    const text = `ShowDocx: ${message}`;
+    const choice = kind === 'error'
+      ? await vscode.window.showErrorMessage(text, 'Show Log')
+      : await vscode.window.showWarningMessage(text, 'Show Log');
+    if (choice === 'Show Log') {
+      getLog().show();
+    }
+  }
+
   private toUserMessage(error: unknown): string {
-    console.error('ShowDocx failed to reload the document.', error);
     if (error instanceof DocxFileTooLargeError || error instanceof InvalidDocxError) {
       return error.message;
     }

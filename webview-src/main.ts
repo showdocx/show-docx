@@ -130,10 +130,9 @@ window.addEventListener('keydown', (event) => {
   } else if (event.key === 'f' || event.key === 'F') {
     event.preventDefault();
     search.open();
-  } else if (event.key === 'p' || event.key === 'P') {
-    event.preventDefault();
-    window.print();
   }
+  // Ctrl/Cmd+P is deliberately left alone: it belongs to VS Code Quick Open.
+  // Printing is bound to showDocx.exportPdf in the keybindings contribution.
 });
 
 viewport.addEventListener('scroll', () => {
@@ -397,7 +396,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
     console.error('ShowDocx could not render the document:', error);
     const message = toRenderError(error);
     showError(message);
-    vscode.postMessage({ type: 'error', message });
+    vscode.postMessage({ type: 'error', message, detail: toErrorDetail(error) });
   } finally {
     toolbar.setBusy(false);
   }
@@ -664,6 +663,14 @@ function joinChunks(chunks: Array<Uint8Array | undefined>, totalSize: number): U
     throw new Error('The received document size does not match its metadata.');
   }
   return output;
+}
+
+/** The unabridged error text, for the host log channel only. */
+function toErrorDetail(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? `${error.name}: ${error.message}`;
+  }
+  return String(error);
 }
 
 function toRenderError(error: unknown): string {

@@ -59,48 +59,61 @@
     "commands": [
       {
         "command": "showDocx.openWith",
-        "title": "ShowDocx: Open with ShowDocx",
+        "title": "Open with ShowDocx",
         "category": "ShowDocx"
       },
       {
         "command": "showDocx.exportHtml",
-        "title": "ShowDocx: Export as HTML",
+        "title": "Export as HTML",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.exportMarkdown",
-        "title": "ShowDocx: Export as Markdown",
+        "title": "Export as Markdown",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.exportPdf",
-        "title": "ShowDocx: Export as PDF",
+        "title": "Export as PDF",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.search",
-        "title": "ShowDocx: Find in Document",
+        "title": "Find in Document",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.zoomIn",
-        "title": "ShowDocx: Zoom In",
+        "title": "Zoom In",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.zoomOut",
-        "title": "ShowDocx: Zoom Out",
+        "title": "Zoom Out",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.zoomReset",
-        "title": "ShowDocx: Reset Zoom",
+        "title": "Reset Zoom",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.toggleMode",
-        "title": "ShowDocx: Toggle Visual/Text Mode",
+        "title": "Toggle Visual/Text Mode",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.showLog",
+        "title": "Show Log",
+        "category": "ShowDocx"
       }
     ],
     "menus": {
@@ -135,6 +148,12 @@
         "command": "showDocx.zoomReset",
         "key": "ctrl+0",
         "mac": "cmd+0",
+        "when": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.exportPdf",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p",
         "when": "activeCustomEditorId == showDocx.docxViewer"
       }
     ],
@@ -177,7 +196,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "npm run verify && npm run build",
     "build": "node ./esbuild.mjs",
     "watch": "node ./esbuild.mjs --watch",
     "check-types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json --noEmit && tsc -p tsconfig.test.json --noEmit",
