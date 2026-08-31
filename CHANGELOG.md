@@ -2,7 +2,7 @@
 
 All notable changes to ShowDocx are documented in this file.
 
-## [1.2.0] - 2026-09-02
+## [1.2.0] - 2026-09-01
 
 ### Added
 
