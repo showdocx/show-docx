@@ -19,6 +19,7 @@ describe('ShowDocx extension', () => {
       'showDocx.zoomOut',
       'showDocx.zoomReset',
       'showDocx.toggleMode',
+      'showDocx.cyclePageTheme',
       'showDocx.showLog',
     ]) {
       assert.ok(commands.includes(command), `Expected command ${command} to be registered.`);

@@ -24,8 +24,9 @@
 - **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
 - **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions. Available in Visual mode; `mammoth` does not carry annotations into Text mode.
 - **Export formats**: sanitized semantic HTML, Markdown (`.md`), or printable HTML that opens your browser's print dialog for **Save as PDF**. The printable file carries the Visual-mode page layout — page breaks, headers, footers, tables and embedded images.
+- **Page themes** for Visual mode: paper, sepia, or dark. Most VS Code users run a dark theme; an 80-page white document does not have to be the only option.
 - **Zoom from 25% to 400%** using the toolbar or `Ctrl/Cmd` keyboard shortcuts.
-- **Persistent state** remembers rendering mode, zoom, and scroll position while the editor remains open.
+- **Persistent state** remembers rendering mode, zoom, page theme, and reading position per document, across sessions. Close a specification and reopen it next week where you left it.
 - **Automatic reload** updates the preview when the source file changes on disk.
 - **Large-file transfer** sends documents to the webview in 1 MB chunks.
 - **VS Code theme support** covers light, dark, high-contrast, and forced-color modes.
@@ -77,6 +78,7 @@ The tool needs VS Code 1.95 or later. ShowDocx still declares support from 1.85,
 | `ShowDocx: Zoom Out` | Decrease zoom by 10% |
 | `ShowDocx: Reset Zoom` | Reset zoom to 100% |
 | `ShowDocx: Toggle Visual/Text Mode` | Switch rendering engines |
+| `ShowDocx: Change Page Theme` | Cycle the Visual-mode page between paper, sepia, and dark |
 | `ShowDocx: Show Log` | Open the ShowDocx log channel for diagnosing a failure |
 
 ## Settings

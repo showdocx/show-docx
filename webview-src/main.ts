@@ -14,6 +14,7 @@ import { Toolbar } from './toolbar';
 import type {
   DocumentMeta,
   IncomingMessage,
+  PageTheme,
   RenderMode,
   ViewerSettings,
   ViewerState,
@@ -33,9 +34,12 @@ const zoomSurface = getElement('zoom-surface');
 const visualContainer = getElement('visual-container');
 const textContainer = getElement('text-container');
 
+const app = getElement('app');
+
 let settings: ViewerSettings = {
   defaultMode: 'visual',
   defaultZoom: 100,
+  defaultPageTheme: 'paper',
   maxFileSizeMb: 100,
   autoReload: true,
 };
@@ -105,6 +109,9 @@ const toolbar = new Toolbar({
   onPrint: () => {
     void exportPdf();
   },
+  onCyclePageTheme: () => {
+    applyPageTheme(state.nextPageTheme());
+  },
 });
 
 const zoom = new ZoomController(
@@ -115,6 +122,7 @@ const zoom = new ZoomController(
 );
 
 toolbar.updateMode(state.value.mode);
+applyPageTheme(state.value.pageTheme);
 zoom.apply();
 
 window.addEventListener('message', (event: MessageEvent<IncomingMessage>) => {
@@ -237,6 +245,9 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
     case 'toggleMode':
       await switchMode(state.value.mode === 'visual' ? 'text' : 'visual');
       break;
+    case 'cyclePageTheme':
+      applyPageTheme(state.nextPageTheme());
+      break;
     case 'search':
       search.open();
       break;
@@ -308,9 +319,16 @@ function abortTransfer(message: string): void {
   vscode.postMessage({ type: 'error', message });
 }
 
+function applyPageTheme(theme: PageTheme): void {
+  state.setPageTheme(theme);
+  app.dataset.pageTheme = theme;
+  toolbar.updatePageTheme(theme, state.nextPageTheme());
+}
+
 async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<void> {
   settings = meta.settings;
-  state.applyInitialSettings(settings);
+  state.applyInitialState(settings, meta.savedState);
+  applyPageTheme(state.value.pageTheme);
   currentMeta = meta;
   // decodeBase64 and joinChunks both hand over a Uint8Array that owns its whole
   // buffer, so the common path needs no copy at all. Copy only a partial view.
@@ -704,6 +722,7 @@ function readDocumentMeta(message: IncomingMessage): DocumentMeta {
     fileName: message.fileName,
     fileSize: message.fileSize,
     settings: message.settings,
+    savedState: message.savedState,
     reload: message.reload ?? false,
   };
 }

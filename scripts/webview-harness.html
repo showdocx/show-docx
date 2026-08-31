@@ -61,15 +61,19 @@
         const settings = {
           defaultMode: params.get('mode') === 'text' ? 'text' : 'visual',
           defaultZoom: 100,
+          defaultPageTheme: params.get('theme') || 'paper',
           maxFileSizeMb: 100,
           autoReload: true
         };
+        // Stands in for the record the host keeps per document.
+        const saved = params.get('saved');
         const meta = {
           transferId: 1,
           fileName: fixture,
           fileSize: bytes.byteLength,
           reload: false,
-          settings
+          settings,
+          savedState: saved ? JSON.parse(saved) : undefined
         };
 
         if (params.get('transfer') === 'broken') {
@@ -107,11 +111,11 @@
           return;
         }
 
-        dispatch({
-          type: 'document',
-          ...meta,
-          data: encodeBase64(bytes)
-        });
+        const payload = { type: 'document', ...meta, data: encodeBase64(bytes) };
+        // Lets a test replay the message the host sends when the file changes
+        // on disk, which is the path that must not disturb the reader.
+        testState.reload = () => dispatch({ ...payload, reload: true });
+        dispatch(payload);
       }
     });
 
@@ -173,6 +177,9 @@
       </div>
       <button id="print-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
         <span class="codicon codicon-printer"></span><span>Print</span>
+      </button>
+      <button id="page-theme-button" class="toolbar-button icon-button" type="button" title="Page theme" aria-label="Page theme">
+        <span class="codicon codicon-color-mode"></span>
       </button>
       <div class="toolbar-group zoom-controls" aria-label="Zoom controls">
         <button id="zoom-out" class="toolbar-button icon-button" type="button" title="Zoom out" aria-label="Zoom out">

@@ -18,8 +18,12 @@ All notable changes to ShowDocx are documented in this file.
 
   The API needs VS Code 1.95, and `engines` stays at `^1.85.0`. The API is detected at runtime and the tool is simply not registered where it is absent.
 
+- **Page themes for Visual mode: paper, sepia and dark.** The page background was hardcoded white, which is a poor answer for the majority of users who run a dark editor. Cycle it from the toolbar or set `showDocx.defaultPageTheme`. Dark inverts the rendered page and rotates the hue back, so colours stay recognizable; images, SVG and video are inverted a second time and keep their own colours. Printing and the PDF export are unaffected — they print what the document says. ([#37](https://github.com/showdocx/show-docx/issues/37))
+- **Reading position, mode, zoom and page theme are remembered per document, across sessions.** They were kept only while the editor stayed open, which is fine for a short document and useless for the long specification this viewer is for. The 100 most recently opened documents are remembered. ([#38](https://github.com/showdocx/show-docx/issues/38))
+
 ### Fixed
 
+- Reloading a document after it changes on disk no longer resets the reader's mode and zoom to the configured defaults. Word rewrites a file several times during one save, so this could throw away the view mid-read.
 - Export as PDF now prints the page layout it renders on screen. It built the printable file from the semantic text view, so page breaks, headers, footers and page geometry were all discarded by the one command whose whole purpose is reproducing them. Starting the export from Text mode renders the page layout for it, and a document Visual mode cannot render still falls back to the text view. ([#34](https://github.com/showdocx/show-docx/issues/34))
 - Visual mode uses the viewer's own page styling again. Its rules were written for the `docx` class `docx-preview` uses by default, but the renderer is configured with `showdocx-visual`, so none of them ever matched — including the print rule that breaks a page between sections.
 

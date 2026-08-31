@@ -118,6 +118,12 @@
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
+        "command": "showDocx.cyclePageTheme",
+        "title": "Change Page Theme",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
         "command": "showDocx.showLog",
         "title": "Show Log",
         "category": "ShowDocx"
@@ -198,6 +204,21 @@
           "minimum": 25,
           "maximum": 400,
           "description": "Default zoom level in percent."
+        },
+        "showDocx.defaultPageTheme": {
+          "type": "string",
+          "default": "paper",
+          "enum": [
+            "paper",
+            "sepia",
+            "dark"
+          ],
+          "enumDescriptions": [
+            "White, the way Word shows the page.",
+            "A warm, low-contrast ground for long reading.",
+            "Invert the page so it suits a dark editor. Images are left as they are."
+          ],
+          "description": "Background of the page in Visual mode. Text mode always follows the editor theme."
         },
         "showDocx.maxFileSizeMb": {
           "type": "number",

@@ -5,6 +5,7 @@ import {
   DocxFileTooLargeError,
   InvalidDocxError,
 } from './errors';
+import { DocumentStateStore } from './documentState';
 import { loadValidatedDocx } from './docxLoader';
 import { getLog } from './log';
 import { clamp } from '../shared/format';
@@ -14,10 +15,12 @@ import { getWebviewUri } from './utils/getWebviewUri';
 import { watchFile } from './watchFile';
 
 type RenderMode = 'visual' | 'text';
+type PageTheme = 'paper' | 'sepia' | 'dark';
 
 interface ViewerSettings {
   defaultMode: RenderMode;
   defaultZoom: number;
+  defaultPageTheme: PageTheme;
   maxFileSizeMb: number;
   autoReload: boolean;
 }
@@ -28,6 +31,8 @@ interface WebviewMessage {
   markdown?: string;
   href?: string;
   message?: string;
+  /** Where the reader is in the document. Validated before it is stored. */
+  state?: unknown;
   /** Raw diagnostic text for the log channel. Never shown to the user. */
   detail?: string;
 }
@@ -46,6 +51,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private readonly panels = new Set<PanelEntry>();
   private activeEntry: PanelEntry | undefined;
   private transferSequence = 0;
+  private readonly documentState: DocumentStateStore;
 
   public static register(context: vscode.ExtensionContext): DocxEditorProvider {
     const provider = new DocxEditorProvider(context);
@@ -65,7 +71,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     return provider;
   }
 
-  public constructor(private readonly context: vscode.ExtensionContext) { }
+  public constructor(private readonly context: vscode.ExtensionContext) {
+    this.documentState = new DocumentStateStore(context.workspaceState);
+  }
 
   public async openCustomDocument(
     uri: vscode.Uri,
@@ -221,6 +229,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           await this.exportPdf(entry.document.uri, message.html);
         }
         break;
+      case 'persistState':
+        await this.documentState.set(entry.document.uri.toString(), message.state);
+        break;
       case 'openExternal':
         if (typeof message.href === 'string') {
           await this.openExternal(message.href);
@@ -257,6 +268,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       fileName: path.basename(entry.document.uri.path),
       fileSize: data.byteLength,
       settings: this.getSettings(),
+      // Travels with the document, so restoring the reading position costs no
+      // extra round trip.
+      savedState: this.documentState.get(entry.document.uri.toString()),
       reload,
     };
 
@@ -457,6 +471,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     return {
       defaultMode: configuration.get<RenderMode>('defaultMode', 'visual'),
       defaultZoom: clamp(configuration.get<number>('defaultZoom', 100), 25, 400),
+      defaultPageTheme: configuration.get<PageTheme>('defaultPageTheme', 'paper'),
       maxFileSizeMb: clamp(configuration.get<number>('maxFileSizeMb', 100), 1, 500),
       autoReload: configuration.get<boolean>('autoReload', true),
     };
@@ -532,6 +547,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       </div>
       <button id="print-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
         <span class="codicon codicon-printer"></span><span>Print</span>
+      </button>
+      <button id="page-theme-button" class="toolbar-button icon-button" type="button" title="Page theme" aria-label="Page theme">
+        <span class="codicon codicon-color-mode"></span>
       </button>
       <div class="toolbar-group zoom-controls" aria-label="Zoom controls">
         <button id="zoom-out" class="toolbar-button icon-button" type="button" title="Zoom out" aria-label="Zoom out">

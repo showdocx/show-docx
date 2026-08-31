@@ -91,6 +91,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('showDocx.toggleMode', () => {
       provider.sendToActivePanel('toggleMode');
     }),
+    vscode.commands.registerCommand('showDocx.cyclePageTheme', () => {
+      provider.sendToActivePanel('cyclePageTheme');
+    }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('showDocx')) {
         provider.broadcastSettings();

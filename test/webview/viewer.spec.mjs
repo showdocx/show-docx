@@ -187,6 +187,104 @@ test('renders repeatedly from one buffer', async ({ page }) => {
   await expect(page.locator('#error-state')).toBeHidden();
 });
 
+test('cycles the page theme and says which one is next', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  const app = page.locator('#app');
+  const button = page.locator('#page-theme-button');
+
+  await expect(app).toHaveAttribute('data-page-theme', 'paper');
+  await expect(button).toHaveAttribute('aria-label', /Paper \(switch to Sepia\)/);
+
+  await button.click();
+  await expect(app).toHaveAttribute('data-page-theme', 'sepia');
+
+  await button.click();
+  await expect(app).toHaveAttribute('data-page-theme', 'dark');
+  await expect(button).toHaveAttribute('aria-label', /Dark \(switch to Paper\)/);
+
+  await button.click();
+  await expect(app).toHaveAttribute('data-page-theme', 'paper');
+});
+
+test('darkens the page without inverting its artwork', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-images.docx&theme=dark');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  const filters = await page.evaluate(() => {
+    const section = document.querySelector('#visual-container section');
+    const image = document.querySelector('#visual-container img');
+    return {
+      page: getComputedStyle(section).filter,
+      image: image ? getComputedStyle(image).filter : null,
+    };
+  });
+
+  // The page is inverted; the image is inverted a second time, back to itself.
+  expect(filters.page).toContain('invert(1)');
+  expect(filters.image).toContain('invert(1)');
+});
+
+test('hides the page theme control where it would do nothing', async ({ page }) => {
+  // Text mode is drawn in the editor's own colours.
+  await page.goto('/scripts/webview-harness.html?mode=text');
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+  await expect(page.locator('#page-theme-button')).toBeHidden();
+
+  await page.getByRole('button', { name: 'Visual' }).click();
+  await expect(page.locator('#page-theme-button')).toBeVisible();
+});
+
+test('opens a document where it was last left', async ({ page }) => {
+  const saved = encodeURIComponent(JSON.stringify({
+    mode: 'text',
+    zoom: 150,
+    scrollTop: 0,
+    pageTheme: 'dark',
+  }));
+  await page.goto(`/scripts/webview-harness.html?saved=${saved}`);
+
+  // The saved record wins over the configured defaults, which say visual/100%.
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+  await expect(page.locator('#zoom-reset')).toHaveText('150%');
+  await expect(page.locator('#app')).toHaveAttribute('data-page-theme', 'dark');
+});
+
+test('tells the host where the reader is, so it survives the editor closing', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#page-theme-button').click();
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+
+  await expect.poll(async () => page.evaluate(() => {
+    const message = window.__showDocxTest.messages.findLast(
+      (candidate) => candidate.type === 'persistState',
+    );
+    return message ? { zoom: message.state.zoom, pageTheme: message.state.pageTheme } : null;
+  }), { timeout: 5000 }).toEqual({ zoom: 110, pageTheme: 'sepia' });
+});
+
+test('leaves the reader where they are when the file changes on disk', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await page.locator('#page-theme-button').click();
+  await page.getByRole('button', { name: 'Text' }).click();
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+
+  // Word rewrites a document several times while saving it. None of those may
+  // put the reader back to the mode, zoom and theme they started at.
+  await page.evaluate(() => window.__showDocxTest.reload());
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+
+  await expect(page.locator('#zoom-reset')).toHaveText('110%');
+  await expect(page.locator('#app')).toHaveAttribute('data-page-theme', 'sepia');
+  await expect(page.locator('#text-container')).toBeVisible();
+});
+
 test('finds and navigates search matches in document', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?mode=text');
   await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');

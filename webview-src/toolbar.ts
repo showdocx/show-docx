@@ -1,4 +1,5 @@
-import type { RenderMode } from './types';
+import { PAGE_THEME_LABELS } from './types';
+import type { PageTheme, RenderMode } from './types';
 import { getButton, getElement } from './dom';
 import { formatBytes } from '../shared/format';
 
@@ -12,6 +13,7 @@ interface ToolbarCallbacks {
   onExportPdf(): void;
   onSearchToggle(): void;
   onPrint(): void;
+  onCyclePageTheme(): void;
 }
 
 export class Toolbar {
@@ -28,6 +30,7 @@ export class Toolbar {
   private readonly exportPdfButton = getButton('export-pdf-button');
   private readonly searchToggleButton = getButton('search-toggle');
   private readonly printButton = getButton('print-button');
+  private readonly pageThemeButton = getButton('page-theme-button');
 
   public constructor(callbacks: ToolbarCallbacks) {
     this.visualButton.addEventListener('click', () => callbacks.onModeChange('visual'));
@@ -40,6 +43,7 @@ export class Toolbar {
     this.exportPdfButton.addEventListener('click', callbacks.onExportPdf);
     this.searchToggleButton.addEventListener('click', callbacks.onSearchToggle);
     this.printButton.addEventListener('click', callbacks.onPrint);
+    this.pageThemeButton.addEventListener('click', callbacks.onCyclePageTheme);
     this.warningsButton.addEventListener('click', () => {
       this.warningsPanel.classList.toggle('hidden');
       const expanded = !this.warningsPanel.classList.contains('hidden');
@@ -59,6 +63,16 @@ export class Toolbar {
     this.textButton.classList.toggle('active', !visualActive);
     this.visualButton.setAttribute('aria-pressed', String(visualActive));
     this.textButton.setAttribute('aria-pressed', String(!visualActive));
+    // Text mode is drawn in the editor's own colours, so a page theme would be
+    // a control with nothing to act on.
+    this.pageThemeButton.classList.toggle('hidden', !visualActive);
+  }
+
+  public updatePageTheme(theme: PageTheme, next: PageTheme): void {
+    const label = `Page theme: ${PAGE_THEME_LABELS[theme]} (switch to ${PAGE_THEME_LABELS[next]})`;
+    this.pageThemeButton.title = label;
+    this.pageThemeButton.setAttribute('aria-label', label);
+    this.pageThemeButton.dataset.theme = theme;
   }
 
   public updateZoom(zoom: number): void {

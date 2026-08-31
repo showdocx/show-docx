@@ -70,6 +70,7 @@ export default [
       globals: {
         process: 'readonly',
         document: 'readonly',
+        getComputedStyle: 'readonly',
         window: 'readonly',
       },
     },
