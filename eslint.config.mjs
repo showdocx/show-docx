@@ -33,6 +33,7 @@ export default [
         HTMLInputElement: 'readonly',
         HTMLDivElement: 'readonly',
         NodeFilter: 'readonly',
+        Node: 'readonly',
         Text: 'readonly',
         MessageEvent: 'readonly',
         ArrayBuffer: 'readonly',

@@ -86,6 +86,42 @@ test('finds and navigates search matches in document', async ({ page }) => {
   await expect(page.locator('mark.showdocx-search-match')).toHaveCount(0);
 });
 
+for (const mode of ['text', 'visual']) {
+  test(`matches a phrase spanning inline formatting in ${mode} mode`, async ({ page }) => {
+    const query = mode === 'text' ? '?mode=text' : '';
+    await page.goto(`/scripts/webview-harness.html${query}`);
+    await expect(page.locator('#zoom-frame')).toBeVisible();
+
+    await page.locator('#search-toggle').click();
+    // "includes" and "bold" sit in different runs: the phrase spans a <strong>.
+    await page.locator('#search-input').fill('includes bold');
+
+    await expect(page.locator('#search-count')).toHaveText('1/1');
+    // One match, but one mark per text node it covers.
+    await expect(page.locator('mark.showdocx-search-match')).toHaveCount(2);
+    await page.locator('#search-next').click();
+    await expect(page.locator('mark.showdocx-search-current')).toHaveCount(2);
+  });
+}
+
+test('does not match text hidden from the reader', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#search-toggle').click();
+
+  // The comment body and author live in a popover that is display:none until hover.
+  await page.locator('#search-input').fill('Please clarify');
+  await expect(page.locator('#search-count')).toHaveText('0/0');
+
+  await page.locator('#search-input').fill('Alice Reviewer');
+  await expect(page.locator('#search-count')).toHaveText('0/0');
+
+  // Text the reader can actually see still matches.
+  await page.locator('#search-input').fill('reviewer comment');
+  await expect(page.locator('#search-count')).toHaveText('1/1');
+});
+
 test('extracts outline and navigates headings', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx&mode=text');
   await expect(page.locator('#text-container')).toContainText('Main Document Title');

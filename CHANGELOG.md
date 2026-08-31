@@ -11,6 +11,16 @@ All notable changes to ShowDocx are documented in this file.
 - The comments sidebar shows one card per annotation with the real reviewer name, instead of a card per popover fragment attributed to "Reviewer".
 - Changing any ShowDocx setting no longer resets the zoom level and render mode of every open document.
 - The warning shown when Visual mode falls back to Text mode is no longer discarded before it is displayed.
+- Search now matches phrases that span bold, italic or any other formatting change, instead of stopping at each run boundary.
+- Search no longer reports matches inside content hidden from the reader, such as comment popovers.
+- Search is debounced and capped at 2000 matches, so typing in a long document no longer blocks the UI on every keystroke.
+- Text mode says when a document contains tracked changes, which mammoth renders as accepted.
+- Ctrl/Cmd+P belongs to VS Code Quick Open again. Export as PDF is on Ctrl/Cmd+Alt+P and is rebindable.
+- Command palette entries no longer show a doubled "ShowDocx: ShowDocx:" prefix.
+
+### Added
+
+- A ShowDocx log channel and a **ShowDocx: Show Log** command. Error notifications now offer **Show Log**, and full diagnostic detail is written there rather than only to the webview console.
 
 ## [1.1.0] - 2026-08-23
 
