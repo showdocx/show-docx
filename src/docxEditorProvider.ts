@@ -265,11 +265,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       return;
     }
 
-    await entry.panel.webview.postMessage({
+    if (!await entry.panel.webview.postMessage({
       type: 'documentStart',
       ...meta,
       totalChunks: chunks.length,
-    });
+    })) {
+      await this.abortTransfer(entry, meta.fileName);
+      return;
+    }
 
     for (let index = 0; index < chunks.length; index += 1) {
       if (entry.disposed || transferId !== entry.transferId) {
@@ -279,12 +282,17 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       if (!chunk) {
         continue;
       }
-      await entry.panel.webview.postMessage({
+      // postMessage resolves false when the message was not delivered. Sending
+      // the rest would complete a transfer the webview can never reassemble.
+      if (!await entry.panel.webview.postMessage({
         type: 'documentChunk',
         transferId,
         index,
         data: Buffer.from(chunk).toString('base64'),
-      });
+      })) {
+        await this.abortTransfer(entry, meta.fileName);
+        return;
+      }
     }
 
     if (!entry.disposed && transferId === entry.transferId) {
@@ -293,6 +301,19 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         transferId,
       });
     }
+  }
+
+  /**
+   * Tells the webview a transfer failed so it shows its error state with the
+   * retry button, rather than waiting out its stall watchdog.
+   */
+  private async abortTransfer(entry: PanelEntry, fileName: string): Promise<void> {
+    getLog().error(`Transferring ${fileName} to the webview failed: a message was not delivered.`);
+    entry.transferId = 0;
+    await entry.panel.webview.postMessage({
+      type: 'hostError',
+      message: 'ShowDocx could not send the document to the viewer.',
+    });
   }
 
   private async saveHtml(sourceUri: vscode.Uri, html: string): Promise<void> {
@@ -394,6 +415,16 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       return;
     }
     if (!['https', 'http', 'mailto'].includes(uri.scheme.toLowerCase())) {
+      return;
+    }
+    // This is the restriction behind the manifest's untrustedWorkspaces:
+    // "limited". A document from an untrusted folder must not be able to send
+    // the user to a destination it chose.
+    if (!vscode.workspace.isTrusted) {
+      getLog().warn(`Blocked a link in a restricted workspace: ${uri.toString()}`);
+      void vscode.window.showWarningMessage(
+        'ShowDocx does not open links from documents in a restricted workspace. Trust this workspace to enable them.',
+      );
       return;
     }
     await vscode.env.openExternal(uri);

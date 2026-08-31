@@ -45,13 +45,12 @@ jobs:
 
       - name: Extension Host tests (macOS)
         if: runner.os == 'macOS'
-        continue-on-error: true
         run: npm run test:integration
 
   webview-and-package:
     name: Webview and VSIX
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -62,10 +61,14 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm audit
+      # Dev dependencies never reach the VSIX: the extension bundles with esbuild
+      # and packages with --no-dependencies. Gate on what ships, at a severity
+      # worth blocking a release for.
+      - run: npm audit --audit-level=high --omit=dev
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:webview
-      - run: npm run package
+      # vsce runs vscode:prepublish, which runs the full verify suite — including
+      # the Extension Host tests, hence xvfb.
+      - run: xvfb-run -a npm run package
 
       - uses: actions/upload-artifact@v4
         with:

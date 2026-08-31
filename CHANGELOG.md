@@ -18,6 +18,10 @@ All notable changes to ShowDocx are documented in this file.
 - Ctrl/Cmd+P belongs to VS Code Quick Open again. Export as PDF is on Ctrl/Cmd+Alt+P and is rebindable.
 - Command palette entries no longer show a doubled "ShowDocx: ShowDocx:" prefix.
 
+### Changed
+
+- In a restricted workspace ShowDocx no longer opens links a document points to, which is the restriction its `untrustedWorkspaces: limited` declaration had always claimed. Trust the workspace to enable them.
+
 ### Added
 
 - A ShowDocx log channel and a **ShowDocx: Show Log** command. Error notifications now offer **Show Log**, and full diagnostic detail is written there rather than only to the webview console.

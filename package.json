@@ -24,7 +24,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "ShowDocx renders local documents safely without executing external scripts."
+      "description": "ShowDocx renders documents in a sandboxed webview with a strict CSP. In a restricted workspace it will not open links a document points to."
     }
   },
   "categories": [
