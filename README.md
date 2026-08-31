@@ -29,6 +29,7 @@
 - **Export formats**: sanitized semantic HTML, Markdown (`.md`), or printable HTML that opens your browser's print dialog for **Save as PDF**. The printable file carries the Visual-mode page layout — page breaks, headers, footers, tables and embedded images.
 - **Page themes** for Visual mode: paper, sepia, or dark. Most VS Code users run a dark theme; an 80-page white document does not have to be the only option.
 - **Zoom from 25% to 400%** using the toolbar, `Ctrl/Cmd` keyboard shortcuts, or `Ctrl/Cmd` + the mouse wheel.
+- **Hidden tabs are released**, so open documents do not hold their rendered pages in memory while nobody is looking at them. Returning to a tab re-renders and lands back where you were; `showDocx.retainHiddenTabs` trades that back for memory.
 - **Persistent state** remembers rendering mode, zoom, page theme, and reading position per document, across sessions. Close a specification and reopen it next week where you left it.
 - **Automatic reload** updates the preview when the source file changes on disk.
 - **Large-file transfer** sends documents to the webview in 1 MB chunks.

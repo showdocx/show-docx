@@ -35,7 +35,13 @@
     }
   </style>
   <script>
-    let persistedState;
+    // Mirrors how VS Code keeps webview state across a hidden tab being shown
+    // again: the state outlives the page, the page's variables do not. Cleared
+    // unless a test opts in, so every other test starts from defaults.
+    const STATE_KEY = 'showdocx.harness.state';
+    if (!new URLSearchParams(window.location.search).has('keepState')) {
+      sessionStorage.removeItem(STATE_KEY);
+    }
     const testState = {
       messages: [],
       printCount: 0
@@ -45,9 +51,12 @@
       testState.printCount += 1;
     };
     window.acquireVsCodeApi = () => ({
-      getState: () => persistedState,
+      getState: () => {
+        const raw = sessionStorage.getItem(STATE_KEY);
+        return raw ? JSON.parse(raw) : undefined;
+      },
       setState: (state) => {
-        persistedState = state;
+        sessionStorage.setItem(STATE_KEY, JSON.stringify(state));
       },
       postMessage: async (message) => {
         testState.messages.push(message);

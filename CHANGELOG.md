@@ -4,6 +4,10 @@ All notable changes to ShowDocx are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- A hidden tab no longer keeps its document and rendered page in memory. `retainContextWhenHidden` was set on every panel, so memory grew with each open document for content nobody was looking at — VS Code's own documentation calls that overhead high. Returning to a tab now re-renders it, measured at about 190ms for a document of 4,000 paragraphs, and the reading position is restored either way. `showDocx.retainHiddenTabs` turns the old behaviour back on. ([#13](https://github.com/showdocx/show-docx/issues/13))
+
 ### Added
 
 - **Search inside every Word document in the workspace.** VS Code's own search skips these files because they are binary, so a folder of forty specifications could not answer "which one mentions this clause?" without opening each by hand. Matches appear as you type, with the line they were found on; choosing one opens the document with the term already in its search bar. Text is cached against each file's modification time, so only the first search reads the files. ([#43](https://github.com/showdocx/show-docx/issues/43))

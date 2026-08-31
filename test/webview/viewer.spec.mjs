@@ -454,6 +454,27 @@ test('tells the host where the reader is, so it survives the editor closing', as
   }), { timeout: 5000 }).toEqual({ zoom: 110, pageTheme: 'sepia' });
 });
 
+test('comes back to where the reader was after the view is rebuilt', async ({ page }) => {
+  // What a hidden tab costs once it is not kept rendered: the webview is built
+  // again from scratch. The reading position has to survive that, or the memory
+  // saving is paid for by losing the reader's place.
+  await page.goto('/scripts/webview-harness.html?keepState=1');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#page-theme-button').click();
+  await page.locator('#zoom-in').click();
+  await page.locator('#mode-text').click();
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+  await expect(page.locator('#zoom-reset')).toHaveText('110%');
+
+  await page.reload();
+
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+  await expect(page.locator('#zoom-reset')).toHaveText('110%');
+  await expect(page.locator('#app')).toHaveAttribute('data-page-theme', 'sepia');
+  await expect(page.locator('#mode-text')).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('leaves the reader where they are when the file changes on disk', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
   await expect(page.locator('#visual-container section')).toBeVisible();

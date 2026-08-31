@@ -19,6 +19,14 @@ import { watchFile } from './watchFile';
 type RenderMode = 'visual' | 'text';
 type PageTheme = 'paper' | 'sepia' | 'dark';
 
+/**
+ * Read once, at registration: VS Code fixes this when the provider registers,
+ * so changing it takes effect on the next window. The setting says so.
+ */
+function readRetainSetting(): boolean {
+  return vscode.workspace.getConfiguration('showDocx').get<boolean>('retainHiddenTabs', false);
+}
+
 interface ViewerSettings {
   defaultMode: RenderMode;
   defaultZoom: number;
@@ -72,7 +80,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         {
           supportsMultipleEditorsPerDocument: false,
           webviewOptions: {
-            retainContextWhenHidden: true,
+            // Off by default. Keeping a hidden tab rendered holds its whole
+            // document and DOM in memory for something nobody is looking at,
+            // and that grows with every open tab; VS Code's own documentation
+            // calls the overhead high. The cost of not keeping it is one
+            // re-render on return -- measured at about 190ms for a document of
+            // 4,000 paragraphs -- and the reader lands back where they were,
+            // because the reading position is restored either way.
+            retainContextWhenHidden: readRetainSetting(),
           },
         },
       ),

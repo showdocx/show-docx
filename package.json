@@ -267,6 +267,11 @@
           "default": true,
           "description": "Automatically reload the preview when the DOCX file changes on disk."
         },
+        "showDocx.retainHiddenTabs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep a document rendered while its tab is hidden. Returning to the tab is then instant, at the cost of holding the whole document and its rendered page in memory for every open tab. Leaving this off costs one re-render on return; the reading position is restored either way. Takes effect after the window is reloaded."
+        },
         "showDocx.exportLocation": {
           "type": "string",
           "default": "ask",
