@@ -76,7 +76,7 @@
       },
       {
         "command": "showDocx.exportPdf",
-        "title": "Export as PDF",
+        "title": "Print to PDF (via Browser)",
         "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },

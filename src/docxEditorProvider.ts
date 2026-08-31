@@ -13,6 +13,9 @@ import { getWebviewUri } from './utils/getWebviewUri';
 
 type RenderMode = 'visual' | 'text';
 
+/** Collapses the burst of file events one external save produces into one reload. */
+const WATCH_DEBOUNCE_MS = 250;
+
 interface ViewerSettings {
   defaultMode: RenderMode;
   defaultZoom: number;
@@ -121,21 +124,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         }
       },
     ));
-    panel.onDidDispose(
-      () => {
-        entry.disposed = true;
-        for (const subscription of entry.subscriptions) {
-          subscription.dispose();
-        }
-        entry.subscriptions.length = 0;
-        this.panels.delete(entry);
-        if (this.activeEntry === entry) {
-          this.activeEntry = [...this.panels].find((candidate) => candidate.panel.active);
-        }
-      },
-      undefined,
-      this.context.subscriptions,
-    );
+    entry.subscriptions.push(panel.onDidDispose(() => {
+      entry.disposed = true;
+      this.disposeEntry(entry);
+      this.panels.delete(entry);
+      if (this.activeEntry === entry) {
+        this.activeEntry = [...this.panels].find((candidate) => candidate.panel.active);
+      }
+    }));
     entry.subscriptions.push(document.onDidChange(
       () => {
         if (entry.ready) {
@@ -175,8 +171,19 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 
   public dispose(): void {
+    for (const entry of this.panels) {
+      entry.disposed = true;
+      this.disposeEntry(entry);
+    }
     this.panels.clear();
     this.activeEntry = undefined;
+  }
+
+  private disposeEntry(entry: PanelEntry): void {
+    for (const subscription of entry.subscriptions) {
+      subscription.dispose();
+    }
+    entry.subscriptions.length = 0;
   }
 
   private getActiveEntry(): PanelEntry | undefined {
@@ -350,10 +357,10 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const target = await vscode.window.showSaveDialog({
       defaultUri,
       filters: {
-        'HTML document (Print to PDF)': ['html', 'htm'],
+        'Printable HTML': ['html', 'htm'],
       },
-      saveLabel: 'Export PDF',
-      title: 'Export DOCX as PDF / HTML',
+      saveLabel: 'Save',
+      title: 'Save printable HTML, then use Print to PDF in your browser',
     });
     if (!target) {
       return;
@@ -370,7 +377,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     await vscode.env.openExternal(target);
 
     void vscode.window.showInformationMessage(
-      `ShowDocx exported ${path.basename(target.path)}. Printing/PDF dialog opened in your browser.`,
+      `ShowDocx saved ${path.basename(target.path)} and opened your browser's print dialog. Choose "Save as PDF" there to produce the PDF.`,
       'Open File',
     ).then((choice) => {
       if (choice === 'Open File') {
@@ -406,10 +413,34 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           : `**/${fileName}`;
         const watcher = vscode.workspace.createFileSystemWatcher(pattern);
         const matches = (candidate: vscode.Uri) => candidate.toString() === uri.toString();
+
+        // Word and LibreOffice write a document several times during a single
+        // save — temp file, rename, final write. Without a delay each of those
+        // events is a full transfer and re-render, and a partially written file
+        // can even pass the signature check and flash a corruption error.
+        let pending: ReturnType<typeof setTimeout> | undefined;
+        const schedule = () => {
+          if (pending) {
+            clearTimeout(pending);
+          }
+          pending = setTimeout(() => {
+            pending = undefined;
+            onChange();
+          }, WATCH_DEBOUNCE_MS);
+        };
+
         const subscriptions = [
-          watcher.onDidChange((candidate) => matches(candidate) && onChange()),
-          watcher.onDidCreate((candidate) => matches(candidate) && onChange()),
-          watcher.onDidDelete((candidate) => matches(candidate) && onChange()),
+          watcher.onDidChange((candidate) => matches(candidate) && schedule()),
+          watcher.onDidCreate((candidate) => matches(candidate) && schedule()),
+          watcher.onDidDelete((candidate) => matches(candidate) && schedule()),
+          {
+            dispose: () => {
+              if (pending) {
+                clearTimeout(pending);
+                pending = undefined;
+              }
+            },
+          },
         ];
         return vscode.Disposable.from(watcher, ...subscriptions);
       },
@@ -495,11 +526,11 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         <button id="export-md-button" class="toolbar-button" type="button" title="Export Markdown">
           <span class="codicon codicon-markdown"></span><span>MD</span>
         </button>
-        <button id="export-pdf-button" class="toolbar-button" type="button" title="Export as PDF">
+        <button id="export-pdf-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
           <span class="codicon codicon-file-pdf"></span><span>PDF</span>
         </button>
       </div>
-      <button id="print-button" class="toolbar-button" type="button" title="Print document">
+      <button id="print-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
         <span class="codicon codicon-printer"></span><span>Print</span>
       </button>
       <div class="toolbar-group zoom-controls" aria-label="Zoom controls">

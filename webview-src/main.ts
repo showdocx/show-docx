@@ -37,6 +37,12 @@ let settings: ViewerSettings = {
   maxFileSizeMb: 100,
   autoReload: true,
 };
+/**
+ * The document bytes, shared by every renderer and exporter. Neither docx-preview
+ * nor mammoth detaches or mutates what it is given — the "renders repeatedly from
+ * one buffer" test holds them to that — so passing it directly avoids a full copy
+ * per render and per export.
+ */
 let currentBuffer: ArrayBuffer | undefined;
 let currentMeta: DocumentMeta | undefined;
 let renderGeneration = 0;
@@ -302,10 +308,14 @@ async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<vo
   settings = meta.settings;
   state.applyInitialSettings(settings);
   currentMeta = meta;
-  currentBuffer = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
+  // decodeBase64 and joinChunks both hand over a Uint8Array that owns its whole
+  // buffer, so the common path needs no copy at all. Copy only a partial view.
+  currentBuffer = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+    ? bytes.buffer as ArrayBuffer
+    : bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
   renderGeneration += 1;
   visualRendered = false;
   textRendered = false;
@@ -352,7 +362,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
       textContainer.classList.add('hidden');
 
       try {
-        await renderVisual(currentBuffer.slice(0));
+        await renderVisual(currentBuffer);
       } catch (visualError: unknown) {
         // Visual rendering failed — fall back to text mode automatically
         console.warn('Visual mode failed, falling back to text mode:', visualError);
@@ -371,7 +381,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
       }
     }
     if (mode === 'text' && !textRendered) {
-      await renderText(currentBuffer.slice(0));
+      await renderText(currentBuffer);
       if (generation !== renderGeneration) {
         return;
       }
@@ -515,7 +525,7 @@ async function exportHtml(): Promise<void> {
   try {
     if (!textRendered) {
       showLoading('Preparing semantic HTML...', 75);
-      await renderText(currentBuffer.slice(0));
+      await renderText(currentBuffer);
       textRendered = true;
       showContent();
     }
@@ -540,7 +550,7 @@ async function exportMarkdown(): Promise<void> {
     const mammothExtended = mammoth as unknown as {
       convertToMarkdown(input: { arrayBuffer: ArrayBuffer }): Promise<{ value: string; messages: Array<{ message: string }> }>;
     };
-    const result = await mammothExtended.convertToMarkdown({ arrayBuffer: currentBuffer.slice(0) });
+    const result = await mammothExtended.convertToMarkdown({ arrayBuffer: currentBuffer });
     showContent();
     vscode.postMessage({
       type: 'exportMarkdown',
@@ -561,7 +571,7 @@ async function exportPdf(): Promise<void> {
   try {
     if (!textRendered) {
       showLoading('Preparing document for PDF...', 75);
-      await renderText(currentBuffer.slice(0));
+      await renderText(currentBuffer);
       textRendered = true;
       showContent();
     }

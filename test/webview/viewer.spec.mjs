@@ -63,6 +63,30 @@ test('exports Markdown and PDF', async ({ page }) => {
   ))).toBe(true);
 });
 
+test('renders repeatedly from one buffer', async ({ page }) => {
+  // Every render and export shares currentBuffer. If docx-preview or mammoth
+  // detached it, everything after the first consumer would fail on empty bytes.
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Text' }).click();
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+
+  await page.getByRole('button', { name: 'HTML' }).click();
+  await page.locator('#export-md-button').click();
+  await page.locator('#export-pdf-button').click();
+
+  await expect.poll(async () => page.evaluate(() => {
+    const types = window.__showDocxTest.messages.map((message) => message.type);
+    return ['exportHtml', 'exportMarkdown', 'exportPdf'].every((type) => types.includes(type));
+  })).toBe(true);
+
+  // Back to Visual: this re-reads the same buffer a fourth time.
+  await page.getByRole('button', { name: 'Visual' }).click();
+  await expect(page.locator('#visual-container section')).toBeVisible();
+  await expect(page.locator('#error-state')).toBeHidden();
+});
+
 test('finds and navigates search matches in document', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?mode=text');
   await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
