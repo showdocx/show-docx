@@ -6,11 +6,16 @@ import {
   InvalidDocxError,
 } from './errors';
 import { loadValidatedDocx } from './docxLoader';
+import { getLog } from './log';
+import { clamp } from '../shared/format';
 import { DEFAULT_CHUNK_SIZE, splitIntoChunks } from './utils/chunks';
 import { getNonce } from './utils/getNonce';
 import { getWebviewUri } from './utils/getWebviewUri';
 
 type RenderMode = 'visual' | 'text';
+
+/** Collapses the burst of file events one external save produces into one reload. */
+const WATCH_DEBOUNCE_MS = 250;
 
 interface ViewerSettings {
   defaultMode: RenderMode;
@@ -25,6 +30,8 @@ interface WebviewMessage {
   markdown?: string;
   href?: string;
   message?: string;
+  /** Raw diagnostic text for the log channel. Never shown to the user. */
+  detail?: string;
 }
 
 interface PanelEntry {
@@ -68,7 +75,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     _token: vscode.CancellationToken,
   ): Promise<DocxDocument> {
     const settings = this.getSettings();
-    const data = await this.loadDocument(uri);
+    const name = path.basename(uri.path);
+    let data: Uint8Array;
+    try {
+      data = await this.loadDocument(uri);
+    } catch (error: unknown) {
+      getLog().error(`Opening ${name} failed.`, error);
+      throw error;
+    }
+    getLog().info(`Opened ${name} (${data.byteLength} bytes).`);
     const host = this.createDocumentHost(settings.autoReload);
     const document = new DocxDocument(uri, data, host);
     if (settings.autoReload) {
@@ -110,21 +125,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         }
       },
     ));
-    panel.onDidDispose(
-      () => {
-        entry.disposed = true;
-        for (const subscription of entry.subscriptions) {
-          subscription.dispose();
-        }
-        entry.subscriptions.length = 0;
-        this.panels.delete(entry);
-        if (this.activeEntry === entry) {
-          this.activeEntry = [...this.panels].find((candidate) => candidate.panel.active);
-        }
-      },
-      undefined,
-      this.context.subscriptions,
-    );
+    entry.subscriptions.push(panel.onDidDispose(() => {
+      entry.disposed = true;
+      this.disposeEntry(entry);
+      this.panels.delete(entry);
+      if (this.activeEntry === entry) {
+        this.activeEntry = [...this.panels].find((candidate) => candidate.panel.active);
+      }
+    }));
     entry.subscriptions.push(document.onDidChange(
       () => {
         if (entry.ready) {
@@ -134,7 +142,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     ));
     entry.subscriptions.push(document.onDidError(
       (error) => {
-        void vscode.window.showWarningMessage(`ShowDocx: ${this.toUserMessage(error)}`);
+        getLog().error('Reloading the document failed.', error);
+        void this.notify('warning', this.toUserMessage(error));
       },
     ));
 
@@ -163,8 +172,19 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 
   public dispose(): void {
+    for (const entry of this.panels) {
+      entry.disposed = true;
+      this.disposeEntry(entry);
+    }
     this.panels.clear();
     this.activeEntry = undefined;
+  }
+
+  private disposeEntry(entry: PanelEntry): void {
+    for (const subscription of entry.subscriptions) {
+      subscription.dispose();
+    }
+    entry.subscriptions.length = 0;
   }
 
   private getActiveEntry(): PanelEntry | undefined {
@@ -204,8 +224,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         }
         break;
       case 'error':
-        void vscode.window.showErrorMessage(
-          message.message ? `ShowDocx: ${message.message}` : 'ShowDocx failed to render the document.',
+        getLog().error(
+          `Rendering ${path.basename(entry.document.uri.path)} failed: ${message.message ?? 'unknown error'}`,
+        );
+        if (message.detail) {
+          getLog().error(message.detail);
+        }
+        void this.notify(
+          'error',
+          message.message ?? 'ShowDocx failed to render the document.',
         );
         break;
       default:
@@ -239,11 +266,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       return;
     }
 
-    await entry.panel.webview.postMessage({
+    if (!await entry.panel.webview.postMessage({
       type: 'documentStart',
       ...meta,
       totalChunks: chunks.length,
-    });
+    })) {
+      await this.abortTransfer(entry, meta.fileName);
+      return;
+    }
 
     for (let index = 0; index < chunks.length; index += 1) {
       if (entry.disposed || transferId !== entry.transferId) {
@@ -253,12 +283,17 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       if (!chunk) {
         continue;
       }
-      await entry.panel.webview.postMessage({
+      // postMessage resolves false when the message was not delivered. Sending
+      // the rest would complete a transfer the webview can never reassemble.
+      if (!await entry.panel.webview.postMessage({
         type: 'documentChunk',
         transferId,
         index,
         data: Buffer.from(chunk).toString('base64'),
-      });
+      })) {
+        await this.abortTransfer(entry, meta.fileName);
+        return;
+      }
     }
 
     if (!entry.disposed && transferId === entry.transferId) {
@@ -267,6 +302,19 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         transferId,
       });
     }
+  }
+
+  /**
+   * Tells the webview a transfer failed so it shows its error state with the
+   * retry button, rather than waiting out its stall watchdog.
+   */
+  private async abortTransfer(entry: PanelEntry, fileName: string): Promise<void> {
+    getLog().error(`Transferring ${fileName} to the webview failed: a message was not delivered.`);
+    entry.transferId = 0;
+    await entry.panel.webview.postMessage({
+      type: 'hostError',
+      message: 'ShowDocx could not send the document to the viewer.',
+    });
   }
 
   private async saveHtml(sourceUri: vscode.Uri, html: string): Promise<void> {
@@ -331,10 +379,10 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const target = await vscode.window.showSaveDialog({
       defaultUri,
       filters: {
-        'HTML document (Print to PDF)': ['html', 'htm'],
+        'Printable HTML': ['html', 'htm'],
       },
-      saveLabel: 'Export PDF',
-      title: 'Export DOCX as PDF / HTML',
+      saveLabel: 'Save',
+      title: 'Save printable HTML, then use Print to PDF in your browser',
     });
     if (!target) {
       return;
@@ -351,7 +399,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     await vscode.env.openExternal(target);
 
     void vscode.window.showInformationMessage(
-      `ShowDocx exported ${path.basename(target.path)}. Printing/PDF dialog opened in your browser.`,
+      `ShowDocx saved ${path.basename(target.path)} and opened your browser's print dialog. Choose "Save as PDF" there to produce the PDF.`,
       'Open File',
     ).then((choice) => {
       if (choice === 'Open File') {
@@ -368,6 +416,16 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       return;
     }
     if (!['https', 'http', 'mailto'].includes(uri.scheme.toLowerCase())) {
+      return;
+    }
+    // This is the restriction behind the manifest's untrustedWorkspaces:
+    // "limited". A document from an untrusted folder must not be able to send
+    // the user to a destination it chose.
+    if (!vscode.workspace.isTrusted) {
+      getLog().warn(`Blocked a link in a restricted workspace: ${uri.toString()}`);
+      void vscode.window.showWarningMessage(
+        'ShowDocx does not open links from documents in a restricted workspace. Trust this workspace to enable them.',
+      );
       return;
     }
     await vscode.env.openExternal(uri);
@@ -387,10 +445,34 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           : `**/${fileName}`;
         const watcher = vscode.workspace.createFileSystemWatcher(pattern);
         const matches = (candidate: vscode.Uri) => candidate.toString() === uri.toString();
+
+        // Word and LibreOffice write a document several times during a single
+        // save — temp file, rename, final write. Without a delay each of those
+        // events is a full transfer and re-render, and a partially written file
+        // can even pass the signature check and flash a corruption error.
+        let pending: ReturnType<typeof setTimeout> | undefined;
+        const schedule = () => {
+          if (pending) {
+            clearTimeout(pending);
+          }
+          pending = setTimeout(() => {
+            pending = undefined;
+            onChange();
+          }, WATCH_DEBOUNCE_MS);
+        };
+
         const subscriptions = [
-          watcher.onDidChange((candidate) => matches(candidate) && onChange()),
-          watcher.onDidCreate((candidate) => matches(candidate) && onChange()),
-          watcher.onDidDelete((candidate) => matches(candidate) && onChange()),
+          watcher.onDidChange((candidate) => matches(candidate) && schedule()),
+          watcher.onDidCreate((candidate) => matches(candidate) && schedule()),
+          watcher.onDidDelete((candidate) => matches(candidate) && schedule()),
+          {
+            dispose: () => {
+              if (pending) {
+                clearTimeout(pending);
+                pending = undefined;
+              }
+            },
+          },
         ];
         return vscode.Disposable.from(watcher, ...subscriptions);
       },
@@ -476,11 +558,11 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         <button id="export-md-button" class="toolbar-button" type="button" title="Export Markdown">
           <span class="codicon codicon-markdown"></span><span>MD</span>
         </button>
-        <button id="export-pdf-button" class="toolbar-button" type="button" title="Export as PDF">
+        <button id="export-pdf-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
           <span class="codicon codicon-file-pdf"></span><span>PDF</span>
         </button>
       </div>
-      <button id="print-button" class="toolbar-button" type="button" title="Print document">
+      <button id="print-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
         <span class="codicon codicon-printer"></span><span>Print</span>
       </button>
       <div class="toolbar-group zoom-controls" aria-label="Zoom controls">
@@ -553,8 +635,21 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 </html>`;
   }
 
+  /**
+   * Shows a short notification with a Show Log action. The detail behind it is
+   * already in the log channel — never put it in the message itself.
+   */
+  private async notify(kind: 'error' | 'warning', message: string): Promise<void> {
+    const text = `ShowDocx: ${message}`;
+    const choice = kind === 'error'
+      ? await vscode.window.showErrorMessage(text, 'Show Log')
+      : await vscode.window.showWarningMessage(text, 'Show Log');
+    if (choice === 'Show Log') {
+      getLog().show();
+    }
+  }
+
   private toUserMessage(error: unknown): string {
-    console.error('ShowDocx failed to reload the document.', error);
     if (error instanceof DocxFileTooLargeError || error instanceof InvalidDocxError) {
       return error.message;
     }
@@ -565,6 +660,3 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(maximum, Math.max(minimum, value));
-}

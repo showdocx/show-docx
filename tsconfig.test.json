@@ -11,6 +11,8 @@
   },
   "include": [
     "src/**/*.ts",
-    "test/**/*.ts"
+    "test/**/*.ts",
+    "shared/**/*.ts",
+    "webview-src/exportDocument.ts"
   ]
 }

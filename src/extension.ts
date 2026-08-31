@@ -1,10 +1,17 @@
 import * as vscode from 'vscode';
 import { DocxEditorProvider } from './docxEditorProvider';
+import { disposeLog, getLog } from './log';
 
 export function activate(context: vscode.ExtensionContext): void {
+  const log = getLog();
+  log.info('ShowDocx activated.');
   const provider = DocxEditorProvider.register(context);
 
   context.subscriptions.push(
+    log,
+    vscode.commands.registerCommand('showDocx.showLog', () => {
+      log.show();
+    }),
     vscode.commands.registerCommand('showDocx.openWith', async (uri?: vscode.Uri) => {
       const target = uri ?? vscode.window.activeTextEditor?.document.uri;
       if (!target) {
@@ -47,4 +54,5 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   // Disposables registered in the extension context handle cleanup.
+  disposeLog();
 }

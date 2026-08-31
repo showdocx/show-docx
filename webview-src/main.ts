@@ -1,9 +1,12 @@
 import '@vscode/codicons/dist/codicon.css';
 import { renderAsync } from 'docx-preview';
 import DOMPurify from 'dompurify';
+import JSZip from 'jszip';
 import * as mammoth from 'mammoth';
 import './styles.css';
 import { CommentsController } from './comments';
+import { getButton, getElement } from './dom';
+import { createExportDocument } from './exportDocument';
 import { OutlineController } from './outline';
 import { SearchController } from './search';
 import { StateManager } from './stateManager';
@@ -36,6 +39,12 @@ let settings: ViewerSettings = {
   maxFileSizeMb: 100,
   autoReload: true,
 };
+/**
+ * The document bytes, shared by every renderer and exporter. Neither docx-preview
+ * nor mammoth detaches or mutates what it is given — the "renders repeatedly from
+ * one buffer" test holds them to that — so passing it directly avoids a full copy
+ * per render and per export.
+ */
 let currentBuffer: ArrayBuffer | undefined;
 let currentMeta: DocumentMeta | undefined;
 let renderGeneration = 0;
@@ -49,6 +58,14 @@ let chunkTransfer: {
   chunks: Array<Uint8Array | undefined>;
 } | undefined;
 let scrollTimer: number | undefined;
+let transferWatchdog: number | undefined;
+
+/** A chunked transfer that makes no progress for this long is treated as failed. */
+const TRANSFER_TIMEOUT_MS = 30_000;
+
+const VISUAL_FALLBACK_WARNING = 'Visual mode could not render this document. Showing text view instead.';
+
+const TRACKED_CHANGES_WARNING = 'This document contains tracked changes. The text view and the HTML, Markdown and PDF exports show them as accepted.';
 
 const getActiveContainer = (): HTMLElement => (state.value.mode === 'visual' ? visualContainer : textContainer);
 
@@ -99,7 +116,10 @@ toolbar.updateMode(state.value.mode);
 zoom.apply();
 
 window.addEventListener('message', (event: MessageEvent<IncomingMessage>) => {
-  void handleMessage(event.data);
+  handleMessage(event.data).catch((error: unknown) => {
+    console.error('ShowDocx could not process a host message:', error);
+    abortTransfer(toRenderError(error));
+  });
 });
 
 window.addEventListener('keydown', (event) => {
@@ -118,10 +138,9 @@ window.addEventListener('keydown', (event) => {
   } else if (event.key === 'f' || event.key === 'F') {
     event.preventDefault();
     search.open();
-  } else if (event.key === 'p' || event.key === 'P') {
-    event.preventDefault();
-    window.print();
   }
+  // Ctrl/Cmd+P is deliberately left alone: it belongs to VS Code Quick Open.
+  // Printing is bound to showDocx.exportPdf in the keybindings contribution.
 });
 
 viewport.addEventListener('scroll', () => {
@@ -161,6 +180,8 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
     case 'document':
       if (message.data) {
         const meta = readDocumentMeta(message);
+        // A single-message document supersedes any transfer still in flight.
+        clearTransfer();
         await acceptDocument(decodeBase64(message.data), meta);
       }
       break;
@@ -172,6 +193,7 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
         totalChunks,
         chunks: new Array<Uint8Array | undefined>(totalChunks),
       };
+      armTransferWatchdog();
       toolbar.updateDocument(meta.fileName, meta.fileSize);
       showLoading(
         meta.reload ? 'Reloading document...' : 'Receiving document...',
@@ -184,24 +206,21 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
       break;
     case 'documentEnd':
       if (chunkTransfer && chunkTransfer.meta.transferId === message.transferId) {
-        const bytes = joinChunks(chunkTransfer.chunks, chunkTransfer.meta.fileSize);
-        const meta = chunkTransfer.meta;
-        chunkTransfer = undefined;
-        await acceptDocument(bytes, meta);
+        const pending = chunkTransfer;
+        clearTransfer();
+        const bytes = joinChunks(pending.chunks, pending.meta.fileSize);
+        await acceptDocument(bytes, pending.meta);
       }
       break;
     case 'hostError':
+      clearTransfer();
       showError(message.message ?? 'ShowDocx could not reload the document.');
       break;
     case 'settingsChanged':
       if (message.settings) {
+        // defaultMode and defaultZoom are initial values: changing an unrelated
+        // setting must not reset the mode and zoom the user is reading at.
         settings = message.settings;
-        state.applyChangedSettings(settings);
-        toolbar.updateMode(state.value.mode);
-        zoom.apply();
-        if (currentBuffer) {
-          await renderMode(state.value.mode);
-        }
       }
       break;
     case 'zoomIn':
@@ -247,19 +266,58 @@ function receiveChunk(message: IncomingMessage): void {
   }
 
   chunkTransfer.chunks[message.index] = decodeBase64(message.data);
+  armTransferWatchdog();
   const received = chunkTransfer.chunks.filter(Boolean).length;
   const percent = 5 + Math.round((received / chunkTransfer.totalChunks) * 45);
   showLoading(`Receiving document... ${received}/${chunkTransfer.totalChunks}`, percent);
+}
+
+/**
+ * (Re)starts the stall timer for the in-flight chunked transfer. Called on every
+ * chunk so a slow but healthy transfer is never cut short.
+ */
+function armTransferWatchdog(): void {
+  clearTransferWatchdog();
+  transferWatchdog = window.setTimeout(() => {
+    transferWatchdog = undefined;
+    if (chunkTransfer) {
+      abortTransfer('The document transfer stopped responding. Try reloading the document.');
+    }
+  }, TRANSFER_TIMEOUT_MS);
+}
+
+function clearTransferWatchdog(): void {
+  if (transferWatchdog !== undefined) {
+    window.clearTimeout(transferWatchdog);
+    transferWatchdog = undefined;
+  }
+}
+
+/** Drops any in-flight chunked transfer and its timer. */
+function clearTransfer(): void {
+  clearTransferWatchdog();
+  chunkTransfer = undefined;
+}
+
+/** Fails an in-flight transfer, showing the error state with its retry button. */
+function abortTransfer(message: string): void {
+  clearTransfer();
+  showError(message);
+  vscode.postMessage({ type: 'error', message });
 }
 
 async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<void> {
   settings = meta.settings;
   state.applyInitialSettings(settings);
   currentMeta = meta;
-  currentBuffer = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
+  // decodeBase64 and joinChunks both hand over a Uint8Array that owns its whole
+  // buffer, so the common path needs no copy at all. Copy only a partial view.
+  currentBuffer = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+    ? bytes.buffer as ArrayBuffer
+    : bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
   renderGeneration += 1;
   visualRendered = false;
   textRendered = false;
@@ -297,7 +355,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
   try {
     if (mode === 'visual' && !visualRendered) {
       renderWarnings = renderWarnings.filter(
-        (warning) => !warning.includes('Visual mode could not render'),
+        (warning) => !warning.includes(VISUAL_FALLBACK_WARNING),
       );
       // docx-preview requires the container to be attached and visible
       zoomFrame.classList.remove('hidden');
@@ -306,13 +364,11 @@ async function renderMode(mode: RenderMode): Promise<void> {
       textContainer.classList.add('hidden');
 
       try {
-        await renderVisual(currentBuffer.slice(0));
+        await renderVisual(currentBuffer);
       } catch (visualError: unknown) {
         // Visual rendering failed — fall back to text mode automatically
         console.warn('Visual mode failed, falling back to text mode:', visualError);
-        renderWarnings.push(
-          'Visual mode could not render this document. Showing text view instead.',
-        );
+        renderWarnings.push(VISUAL_FALLBACK_WARNING);
         state.setMode('text');
         toolbar.updateMode('text');
         mode = 'text' as RenderMode;
@@ -327,7 +383,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
       }
     }
     if (mode === 'text' && !textRendered) {
-      await renderText(currentBuffer.slice(0));
+      await renderText(currentBuffer);
       if (generation !== renderGeneration) {
         return;
       }
@@ -352,7 +408,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
     console.error('ShowDocx could not render the document:', error);
     const message = toRenderError(error);
     showError(message);
-    vscode.postMessage({ type: 'error', message });
+    vscode.postMessage({ type: 'error', message, detail: toErrorDetail(error) });
   } finally {
     toolbar.setBusy(false);
   }
@@ -428,12 +484,39 @@ async function renderText(arrayBuffer: ArrayBuffer): Promise<void> {
       "p[style-name='Subtitle'] => p.document-subtitle:fresh"
     ]
   };
+  // mammoth drops w:del runs and inlines w:ins runs without reporting either, so
+  // the text view silently differs from the visual view. Detect the markup here
+  // and say so rather than letting the content change without explanation.
+  const trackedChanges = await hasTrackedChanges(arrayBuffer);
+
   const result = await mammoth.convertToHtml({ arrayBuffer }, options);
   exportedTextHtml = DOMPurify.sanitize(result.value, {
     USE_PROFILES: { html: true },
   });
   textContainer.innerHTML = exportedTextHtml;
-  renderWarnings = result.messages.map((message) => message.message);
+  // Append rather than replace: a Visual-mode fallback warning was pushed before
+  // this call and must survive to reach the user.
+  renderWarnings = [
+    ...renderWarnings,
+    ...(trackedChanges ? [TRACKED_CHANGES_WARNING] : []),
+    ...result.messages.map((message) => message.message),
+  ];
+}
+
+/**
+ * Reports whether the document body carries revision markup. Advisory only — a
+ * document that cannot be inspected is reported as having none. The trailing
+ * non-letter guard keeps w:instrText and w:delText from matching.
+ */
+async function hasTrackedChanges(arrayBuffer: ArrayBuffer): Promise<boolean> {
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const body = await zip.file('word/document.xml')?.async('text');
+    return body !== undefined && /<w:(?:ins|del)[^a-zA-Z]/.test(body);
+  } catch (error: unknown) {
+    console.warn('ShowDocx could not inspect the document for tracked changes:', error);
+    return false;
+  }
 }
 
 async function exportHtml(): Promise<void> {
@@ -444,7 +527,7 @@ async function exportHtml(): Promise<void> {
   try {
     if (!textRendered) {
       showLoading('Preparing semantic HTML...', 75);
-      await renderText(currentBuffer.slice(0));
+      await renderText(currentBuffer);
       textRendered = true;
       showContent();
     }
@@ -469,7 +552,7 @@ async function exportMarkdown(): Promise<void> {
     const mammothExtended = mammoth as unknown as {
       convertToMarkdown(input: { arrayBuffer: ArrayBuffer }): Promise<{ value: string; messages: Array<{ message: string }> }>;
     };
-    const result = await mammothExtended.convertToMarkdown({ arrayBuffer: currentBuffer.slice(0) });
+    const result = await mammothExtended.convertToMarkdown({ arrayBuffer: currentBuffer });
     showContent();
     vscode.postMessage({
       type: 'exportMarkdown',
@@ -490,7 +573,7 @@ async function exportPdf(): Promise<void> {
   try {
     if (!textRendered) {
       showLoading('Preparing document for PDF...', 75);
-      await renderText(currentBuffer.slice(0));
+      await renderText(currentBuffer);
       textRendered = true;
       showContent();
     }
@@ -503,30 +586,6 @@ async function exportPdf(): Promise<void> {
   } finally {
     toolbar.setBusy(false);
   }
-}
-
-function createExportDocument(fileName: string, body: string): string {
-  const title = escapeHtml(fileName.replace(/\.docx$/i, ''));
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { max-width: 850px; margin: 0 auto; padding: 48px 28px; font: 16px/1.7 system-ui, sans-serif; }
-    img { max-width: 100%; height: auto; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #8888; padding: 0.5rem; text-align: left; }
-    pre { overflow: auto; padding: 1rem; background: #8882; }
-    blockquote { margin-left: 0; padding-left: 1rem; border-left: 4px solid #8888; }
-  </style>
-</head>
-<body>
-${body}
-</body>
-</html>`;
 }
 
 function showLoading(label: string, progress: number): void {
@@ -594,6 +653,14 @@ function joinChunks(chunks: Array<Uint8Array | undefined>, totalSize: number): U
   return output;
 }
 
+/** The unabridged error text, for the host log channel only. */
+function toErrorDetail(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? `${error.name}: ${error.message}`;
+  }
+  return String(error);
+}
+
 function toRenderError(error: unknown): string {
   if (error instanceof Error && error.message) {
     if (/zip|central directory|end of data|invalid/i.test(error.message)) {
@@ -603,27 +670,3 @@ function toRenderError(error: unknown): string {
   return 'ShowDocx could not render this document.';
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-function getElement(id: string): HTMLElement {
-  const element = document.getElementById(id);
-  if (!element) {
-    throw new Error(`Missing viewer element: ${id}`);
-  }
-  return element;
-}
-
-function getButton(id: string): HTMLButtonElement {
-  const element = getElement(id);
-  if (!(element instanceof HTMLButtonElement)) {
-    throw new Error(`Expected button element: ${id}`);
-  }
-  return element;
-}

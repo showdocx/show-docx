@@ -1,5 +1,6 @@
+import { getButton, getElement } from './dom';
+
 export interface OutlineItem {
-  id: string;
   title: string;
   level: number;
   element: HTMLElement;
@@ -13,7 +14,6 @@ export class OutlineController {
 
   private items: OutlineItem[] = [];
   private activeContainerGetter: () => HTMLElement;
-  private activeItemIndex = -1;
 
   public constructor(
     getActiveContainer: () => HTMLElement,
@@ -27,14 +27,6 @@ export class OutlineController {
 
   public get isOpen(): boolean {
     return !this.sidebar.classList.contains('hidden');
-  }
-
-  public get activeIndex(): number {
-    return this.activeItemIndex;
-  }
-
-  public get count(): number {
-    return this.items.length;
   }
 
   public open(): void {
@@ -107,7 +99,6 @@ export class OutlineController {
       return;
     }
 
-    this.activeItemIndex = index;
     const buttons = this.list.querySelectorAll('.outline-item');
     buttons.forEach((btn, idx) => {
       btn.classList.toggle('active', idx === index);
@@ -127,7 +118,6 @@ export class OutlineController {
     ].join(', ');
 
     const elements = Array.from(container.querySelectorAll<HTMLElement>(selector));
-    let sequence = 0;
 
     for (const el of elements) {
       if (el.closest('.hidden') || el.classList.contains('hidden') || el.closest('#warnings-panel')) {
@@ -144,14 +134,9 @@ export class OutlineController {
         continue;
       }
 
-      const level = this.detectHeadingLevel(el);
-      sequence += 1;
-      const id = `outline-heading-${sequence}`;
-
       headings.push({
-        id,
         title: text,
-        level,
+        level: this.detectHeadingLevel(el),
         element: el,
       });
     }
@@ -179,20 +164,4 @@ export class OutlineController {
 
     return 2;
   }
-}
-
-function getElement(id: string): HTMLElement {
-  const element = document.getElementById(id);
-  if (!element) {
-    throw new Error(`Missing outline element: ${id}`);
-  }
-  return element;
-}
-
-function getButton(id: string): HTMLButtonElement {
-  const element = getElement(id);
-  if (!(element instanceof HTMLButtonElement)) {
-    throw new Error(`Expected button element: ${id}`);
-  }
-  return element;
 }

@@ -1,3 +1,4 @@
+import { clamp } from '../shared/format';
 import type { RenderMode, ViewerSettings, ViewerState, VsCodeApi } from './types';
 
 const DEFAULT_STATE: ViewerState = {
@@ -24,15 +25,6 @@ export class StateManager {
     if (this.restored) {
       return;
     }
-    this.state = {
-      ...this.state,
-      mode: settings.defaultMode,
-      zoom: clamp(settings.defaultZoom, 25, 400),
-    };
-    this.persist();
-  }
-
-  public applyChangedSettings(settings: ViewerSettings): void {
     this.state = {
       ...this.state,
       mode: settings.defaultMode,
@@ -79,6 +71,3 @@ function isViewerState(value: ViewerState | undefined): value is ViewerState {
     && Number.isFinite(value.scrollTop);
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(maximum, Math.max(minimum, value));
-}

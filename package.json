@@ -2,7 +2,7 @@
   "name": "show-docx",
   "displayName": "ShowDocx",
   "description": "A high-fidelity, theme-aware DOCX viewer for Visual Studio Code.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "showdocx",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -19,12 +19,12 @@
     "url": "https://github.com/showdocx/show-docx/issues"
   },
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.85.0"
   },
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "ShowDocx renders local documents safely without executing external scripts."
+      "description": "ShowDocx renders documents in a sandboxed webview with a strict CSP. In a restricted workspace it will not open links a document points to."
     }
   },
   "categories": [
@@ -59,48 +59,61 @@
     "commands": [
       {
         "command": "showDocx.openWith",
-        "title": "ShowDocx: Open with ShowDocx",
+        "title": "Open with ShowDocx",
         "category": "ShowDocx"
       },
       {
         "command": "showDocx.exportHtml",
-        "title": "ShowDocx: Export as HTML",
+        "title": "Export as HTML",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.exportMarkdown",
-        "title": "ShowDocx: Export as Markdown",
+        "title": "Export as Markdown",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.exportPdf",
-        "title": "ShowDocx: Export as PDF",
+        "title": "Print to PDF (via Browser)",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.search",
-        "title": "ShowDocx: Find in Document",
+        "title": "Find in Document",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.zoomIn",
-        "title": "ShowDocx: Zoom In",
+        "title": "Zoom In",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.zoomOut",
-        "title": "ShowDocx: Zoom Out",
+        "title": "Zoom Out",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.zoomReset",
-        "title": "ShowDocx: Reset Zoom",
+        "title": "Reset Zoom",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
         "command": "showDocx.toggleMode",
-        "title": "ShowDocx: Toggle Visual/Text Mode",
+        "title": "Toggle Visual/Text Mode",
+        "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.showLog",
+        "title": "Show Log",
+        "category": "ShowDocx"
       }
     ],
     "menus": {
@@ -135,6 +148,12 @@
         "command": "showDocx.zoomReset",
         "key": "ctrl+0",
         "mac": "cmd+0",
+        "when": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.exportPdf",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p",
         "when": "activeCustomEditorId == showDocx.docxViewer"
       }
     ],
@@ -177,11 +196,11 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "npm run verify && npm run build",
     "build": "node ./esbuild.mjs",
     "watch": "node ./esbuild.mjs --watch",
     "check-types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json --noEmit && tsc -p tsconfig.test.json --noEmit",
-    "lint": "eslint src webview-src test scripts",
+    "lint": "eslint src shared webview-src test scripts",
     "compile-tests": "tsc -p tsconfig.test.json",
     "test:unit": "npm run compile-tests && mocha \"dist-test/test/unit/**/*.test.js\"",
     "test:integration": "npm run build && npm run compile-tests && node ./scripts/run-tests.mjs",
@@ -197,23 +216,22 @@
     "@vscode/codicons": "^0.0.44",
     "docx-preview": "^0.3.7",
     "dompurify": "^3.3.1",
+    "jszip": "^3.10.1",
     "mammoth": "^1.12.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.60.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.25",
     "@types/vscode": "1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.61.0",
-    "@playwright/test": "^1.60.0",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^3.0.0",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.9.2",
     "docx": "^9.7.1",
     "esbuild": "^0.28.1",
     "eslint": "^9.39.1",
-    "glob": "^13.0.0",
     "mocha": "^11.3.0",
     "patch-package": "^8.0.1",
     "typescript": "^5.9.3"

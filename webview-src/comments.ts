@@ -1,10 +1,13 @@
+import { getButton, getElement } from './dom';
+
 export interface CommentEntry {
-  id: string;
   author: string;
-  date?: string;
   text: string;
   type: 'comment' | 'insertion' | 'deletion';
+  /** The scanned node — used to de-duplicate nested matches. */
   element: HTMLElement;
+  /** Where clicking the card scrolls to; comment popovers are display:none. */
+  anchor: HTMLElement;
 }
 
 export class CommentsController {
@@ -29,10 +32,6 @@ export class CommentsController {
 
   public get isOpen(): boolean {
     return !this.sidebar.classList.contains('hidden');
-  }
-
-  public get count(): number {
-    return this.entries.length;
   }
 
   public open(): void {
@@ -104,7 +103,7 @@ export class CommentsController {
 
       card.append(header, body);
       card.addEventListener('click', () => {
-        entry.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        entry.anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
 
       this.list.appendChild(card);
@@ -113,19 +112,13 @@ export class CommentsController {
 
   private scanComments(container: HTMLElement): CommentEntry[] {
     const results: CommentEntry[] = [];
-    let sequence = 0;
 
-    // Scan docx-preview comments, annotations, del, ins elements
-    const selector = [
-      '.docx-comment',
-      '.docx-comment-ref',
-      '.comment',
-      '[class*="comment"]',
-      'del',
-      'ins',
-      '.docx-del',
-      '.docx-ins',
-    ].join(', ');
+    // docx-preview renders one comment as a "💬" reference span followed by a
+    // popover div holding the author, the date and the comment body, and renders
+    // tracked changes as plain <ins>/<del> tags. Matching the popover — never the
+    // reference span nor the popover's own children — gives exactly one entry per
+    // annotation.
+    const selector = ['[class*="comment-popover"]', 'ins', 'del'].join(', ');
 
     const elements = Array.from(container.querySelectorAll<HTMLElement>(selector));
 
@@ -134,34 +127,48 @@ export class CommentsController {
         continue;
       }
 
-      const text = (el.textContent ?? '').trim();
-      if (!text) {
+      // Skip anything already covered by an entry (e.g. an <ins> inside a comment body).
+      if (results.some((entry) => entry.element === el || entry.element.contains(el))) {
         continue;
       }
 
-      sequence += 1;
-      const id = `comment-entry-${sequence}`;
-      let type: 'comment' | 'insertion' | 'deletion' = 'comment';
-
       const tag = el.tagName.toLowerCase();
-      const className = el.className || '';
+      const isPopover = /comment-popover/.test(el.className || '');
 
-      if (tag === 'del' || /del|deletion/i.test(className)) {
+      let type: 'comment' | 'insertion' | 'deletion' = 'comment';
+      if (tag === 'del') {
         type = 'deletion';
-      } else if (tag === 'ins' || /ins|insertion/i.test(className)) {
+      } else if (tag === 'ins') {
         type = 'insertion';
       }
 
-      const author = el.getAttribute('data-author') || el.getAttribute('author') || (type === 'comment' ? 'Reviewer' : 'Tracked Change');
-      const date = el.getAttribute('data-date') || undefined;
+      let author = type === 'comment' ? 'Reviewer' : 'Tracked Change';
+      let text: string;
+      let anchor: HTMLElement = el;
+
+      if (isPopover) {
+        const parsed = readPopover(el);
+        author = parsed.author ?? author;
+        text = parsed.text;
+        // The popover is display:none until hovered, so scroll to the reference span.
+        const reference = el.previousElementSibling;
+        if (reference instanceof HTMLElement) {
+          anchor = reference;
+        }
+      } else {
+        text = (el.textContent ?? '').trim();
+      }
+
+      if (!text && !isPopover) {
+        continue;
+      }
 
       results.push({
-        id,
         author,
-        date,
         text: text.length > 300 ? text.slice(0, 300) + '...' : text,
         type,
         element: el,
+        anchor,
       });
     }
 
@@ -169,18 +176,24 @@ export class CommentsController {
   }
 }
 
-function getElement(id: string): HTMLElement {
-  const element = document.getElementById(id);
-  if (!element) {
-    throw new Error(`Missing comments element: ${id}`);
-  }
-  return element;
-}
+/** Splits a docx-preview comment popover into its author and body text. */
+function readPopover(popover: HTMLElement): { author?: string; text: string } {
+  const authorEl = popover.querySelector<HTMLElement>('[class*="comment-author"]');
+  const dateEl = popover.querySelector<HTMLElement>('[class*="comment-date"]');
 
-function getButton(id: string): HTMLButtonElement {
-  const element = getElement(id);
-  if (!(element instanceof HTMLButtonElement)) {
-    throw new Error(`Expected button element: ${id}`);
+  const body: string[] = [];
+  for (const child of Array.from(popover.children)) {
+    if (child === authorEl || child === dateEl) {
+      continue;
+    }
+    const part = (child.textContent ?? '').trim();
+    if (part) {
+      body.push(part);
+    }
   }
-  return element;
+
+  return {
+    author: authorEl?.textContent?.trim() || undefined,
+    text: body.join('\n'),
+  };
 }

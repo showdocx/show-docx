@@ -5,11 +5,16 @@ import { deflateSync } from 'node:zlib';
 import {
   AlignmentType,
   BorderStyle,
+  CommentRangeEnd,
+  CommentRangeStart,
+  CommentReference,
+  DeletedTextRun,
   Document,
   Footer,
   Header,
   HeadingLevel,
   ImageRun,
+  InsertedTextRun,
   Packer,
   PageNumber,
   Paragraph,
@@ -193,6 +198,57 @@ const withHeadings = new Document({
   ],
 });
 
+// Exactly three annotations: one comment, one insertion, one deletion.
+// The comments panel must show three cards and the real author name.
+const reviewDate = new Date('2026-01-01T00:00:00Z');
+const withComments = new Document({
+  comments: {
+    children: [
+      {
+        id: 0,
+        author: 'Alice Reviewer',
+        initials: 'AR',
+        date: reviewDate,
+        children: [new Paragraph('Please clarify this sentence.')],
+      },
+    ],
+  },
+  sections: [
+    {
+      children: [
+        new Paragraph({ text: 'Reviewed Document', heading: HeadingLevel.TITLE }),
+        new Paragraph({
+          children: [
+            new CommentRangeStart(0),
+            new TextRun('A sentence that carries a reviewer comment.'),
+            new CommentRangeEnd(0),
+            new TextRun({ children: [new CommentReference(0)] }),
+          ],
+        }),
+        new Paragraph({
+          children: [
+            new TextRun('Base text with '),
+            new InsertedTextRun({
+              text: 'an inserted phrase',
+              id: 1,
+              author: 'Alice Reviewer',
+              date: reviewDate.toISOString(),
+            }),
+            new TextRun(' and '),
+            new DeletedTextRun({
+              text: 'a deleted phrase',
+              id: 2,
+              author: 'Alice Reviewer',
+              date: reviewDate.toISOString(),
+            }),
+            new TextRun('.'),
+          ],
+        }),
+      ],
+    },
+  ],
+});
+
 const empty = new Document({
   sections: [{ children: [new Paragraph('')] }],
 });
@@ -202,6 +258,7 @@ await Promise.all([
   writeDocx('with-tables.docx', withTables),
   writeDocx('with-images.docx', withImages),
   writeDocx('with-headings.docx', withHeadings),
+  writeDocx('with-comments.docx', withComments),
   writeDocx('empty.docx', empty),
   writeFile(join(outputDirectory, 'corrupted.docx'), Buffer.from('not a valid OOXML package')),
 ]);
@@ -214,13 +271,15 @@ await writeFile(
 );
 
 if (!process.argv.includes('--skip-large')) {
-  const largePng = createPng(1500, 1200, true);
+  // Random data so it will not compress: the fixture only has to sit above the
+  // 1 MB limit the "rejects files above the configured limit" test configures.
+  const largePng = createPng(620, 620, true);
   const largeDocument = new Document({
     sections: [
       {
         children: [
           new Paragraph({ text: 'Large Document Fixture', heading: HeadingLevel.TITLE }),
-          new Paragraph('This valid DOCX is intentionally larger than 5 MB.'),
+          new Paragraph('This valid DOCX is intentionally larger than 1 MB.'),
           new Paragraph({
             children: [
               new ImageRun({

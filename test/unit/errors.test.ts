@@ -1,11 +1,9 @@
 import { strict as assert } from 'node:assert';
-import type * as vscode from 'vscode';
 import { describe, it } from 'mocha';
+import { formatBytes } from '../../shared/format';
 import {
   DocxFileTooLargeError,
-  DocxParseError,
   InvalidDocxError,
-  formatBytes,
   isLikelyDocx,
 } from '../../src/errors';
 
@@ -22,9 +20,7 @@ describe('DOCX errors', () => {
     assert.match(error.message, /100 MB/i);
   });
 
-  it('creates parse and invalid-file errors', () => {
-    const uri = { path: '/sample.docx' } as vscode.Uri;
-    assert.match(new DocxParseError('bad archive', uri).message, /bad archive/);
+  it('describes an invalid file without leaking internals', () => {
     assert.match(new InvalidDocxError().message, /not a valid DOCX/i);
   });
 

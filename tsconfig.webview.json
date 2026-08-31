@@ -20,6 +20,7 @@
   },
   "include": [
     "webview-src/**/*.ts",
-    "webview-src/**/*.d.ts"
+    "webview-src/**/*.d.ts",
+    "shared/**/*.ts"
   ]
 }

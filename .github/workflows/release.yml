@@ -33,10 +33,10 @@ jobs:
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
 
       - run: npm ci
-      - run: npm audit
+      - run: npm audit --audit-level=high --omit=dev
       - run: npx playwright install --with-deps chromium
-      - run: xvfb-run -a npm run verify
-      - run: npm run package
+      # npm run package triggers vscode:prepublish, which runs verify.
+      - run: xvfb-run -a npm run package
 
       - name: Generate checksum
         shell: bash

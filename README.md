@@ -16,12 +16,12 @@
 
 ## Features
 
-- **Visual mode** renders pages, headers, footers, tables, images, footnotes, and document sizing with `docx-preview`.
+- **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes, and document sizing — with `docx-preview`. Pages are broken where the document declares a break, not repaginated.
 - **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
 - **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
 - **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
-- **Comments and tracked changes** viewer panel displaying reviewer notes, additions, and deletions.
-- **Export formats**: Export to sanitized semantic HTML, Markdown (`.md`), or print/save as PDF.
+- **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions. Available in Visual mode; `mammoth` does not carry annotations into Text mode.
+- **Export formats**: sanitized semantic HTML, Markdown (`.md`), or printable HTML that opens your browser's print dialog for **Save as PDF**.
 - **Zoom from 25% to 400%** using the toolbar or `Ctrl/Cmd` keyboard shortcuts.
 - **Persistent state** remembers rendering mode, zoom, and scroll position while the editor remains open.
 - **Automatic reload** updates the preview when the source file changes on disk.
@@ -40,7 +40,7 @@
 3. Press `Ctrl/Cmd + F` to search within the document.
 4. Open the **Outline** or **Comments** sidebars from the toolbar to navigate structure and reviews.
 5. Use the toolbar or `Ctrl/Cmd` + `+`, `-`, and `0` to control zoom.
-6. Export the document as **HTML**, **MD** (Markdown), or **PDF** from the toolbar or Command Palette.
+6. Export the document as **HTML** or **MD** (Markdown) from the toolbar or Command Palette. **PDF** saves printable HTML and opens it in your browser, where **Print → Save as PDF** produces the file.
 
 To choose ShowDocx explicitly, right-click a `.docx` file and select **Open with ShowDocx**.
 
@@ -51,11 +51,12 @@ To choose ShowDocx explicitly, right-click a `.docx` file and select **Open with
 | `ShowDocx: Find in Document` | Open in-document search bar (`Ctrl/Cmd + F`) |
 | `ShowDocx: Export as HTML` | Export sanitized semantic HTML |
 | `ShowDocx: Export as Markdown` | Export clean Markdown document (`.md`) |
-| `ShowDocx: Export as PDF` | Open print / save as PDF dialogue |
+| `ShowDocx: Print to PDF (via Browser)` | Save printable HTML and open your browser's print dialog (`Ctrl/Cmd + Alt + P`) |
 | `ShowDocx: Zoom In` | Increase zoom by 10% |
 | `ShowDocx: Zoom Out` | Decrease zoom by 10% |
 | `ShowDocx: Reset Zoom` | Reset zoom to 100% |
 | `ShowDocx: Toggle Visual/Text Mode` | Switch rendering engines |
+| `ShowDocx: Show Log` | Open the ShowDocx log channel for diagnosing a failure |
 
 ## Settings
 
@@ -74,11 +75,11 @@ Install [ShowDocx from the Visual Studio Marketplace](https://marketplace.visual
 code --install-extension showdocx.show-docx
 ```
 
-For manual or offline installation, download `show-docx-1.1.0.vsix` from the
+For manual or offline installation, download `show-docx-1.1.1.vsix` from the
 [latest GitHub release](https://github.com/showdocx/show-docx/releases/latest), then run:
 
 ```bash
-code --install-extension show-docx-1.1.0.vsix
+code --install-extension show-docx-1.1.1.vsix
 ```
 
 You can also use **Extensions: Install from VSIX...** from the VS Code Command Palette.
@@ -107,17 +108,20 @@ npm run verify
 
 ShowDocx is a `CustomReadonlyEditorProvider`. The extension host reads and watches the DOCX binary, validates size and ZIP signatures, then transfers the document to a sandboxed webview. The browser bundle selects `docx-preview` or `mammoth`, keeps rendered modes cached, and persists UI state through the VS Code webview state API.
 
-The extension and webview are independently bundled by esbuild for Node 18 and Chromium 114, matching the minimum VS Code 1.85 runtime.
+The extension and webview are independently bundled by esbuild for Node 18 and Chromium 114, matching the minimum VS Code 1.85 runtime declared in `engines`.
 
 The pinned `docx-preview` compatibility changes are stored as a versioned `patch-package` patch, so local and CI builds use the same renderer code.
 
 ## Privacy
 
-Documents are processed entirely on your machine inside the VS Code extension host and sandboxed webview. ShowDocx does not upload document contents, include telemetry, or contact an external service. External links are opened only after an explicit click.
+Documents are processed entirely on your machine inside the VS Code extension host and sandboxed webview. ShowDocx does not upload document contents, include telemetry, or contact an external service. External links are opened only after an explicit click, and not at all while the workspace is untrusted.
 
 ## Known Limitations
 
 - `.doc` binary files are not supported.
+- Text mode shows tracked changes as accepted: `mammoth` drops deletions and inlines insertions. The viewer says so in its rendering notes; use Visual mode to see the markup.
+- The comments sidebar reads annotations from the Visual-mode render, so it is empty in Text mode.
+- Search matches at most 2000 results per query, shown as `2000+`.
 - Table of contents, bookmarks, advanced Word fields, and some hyperlinks are limited by the open-source rendering engines.
 - Visual mode prioritizes page fidelity, but highly complex Word layouts may differ from Microsoft Word.
 - HTML export is semantic and intentionally does not reproduce the exact page layout.
@@ -125,7 +129,7 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 
 ## Publishing
 
-Tags matching the package version, such as `v1.1.0`, run the full verification suite, package a VSIX, generate a SHA-256 checksum, and create a draft GitHub release.
+Tags matching the package version, such as `v1.1.1`, run the full verification suite, package a VSIX, generate a SHA-256 checksum, and create a draft GitHub release.
 
 Stable releases are also published under the `showdocx` publisher on the
 [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=showdocx.show-docx). Marketplace publishing is currently a separate manual release step.

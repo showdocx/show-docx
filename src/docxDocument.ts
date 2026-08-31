@@ -48,11 +48,9 @@ export class DocxDocument implements vscode.CustomDocument {
   private reloadPending = false;
 
   private readonly changeEmitter = new EventEmitter<Uint8Array>();
-  private readonly disposeEmitter = new EventEmitter<void>();
   private readonly errorEmitter = new EventEmitter<unknown>();
 
   public readonly onDidChange = this.changeEmitter.event;
-  public readonly onDidDispose = this.disposeEmitter.event;
   public readonly onDidError = this.errorEmitter.event;
 
   public constructor(
@@ -114,9 +112,7 @@ export class DocxDocument implements vscode.CustomDocument {
     this.disposed = true;
     this.watcher?.dispose();
     this.watcher = undefined;
-    this.disposeEmitter.fire();
     this.changeEmitter.dispose();
     this.errorEmitter.dispose();
-    this.disposeEmitter.dispose();
   }
 }
