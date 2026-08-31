@@ -18,6 +18,7 @@ describe('ShowDocx extension', () => {
       'showDocx.searchWorkspace',
       'showDocx.showProperties',
       'showDocx.extractImages',
+      'showDocx.writeMarkdownMirror',
       'showDocx.searchFor',
       'showDocx.zoomIn',
       'showDocx.zoomOut',

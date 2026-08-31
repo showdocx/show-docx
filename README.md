@@ -65,6 +65,14 @@ Text is read straight out of each document's XML and cached against the file's m
 
 The API that would put these results in VS Code's own search panel is still proposed, so this is a separate command for now.
 
+### Markdown mirrors
+
+Comparing revisions inside the editor is one problem; `git diff` in a terminal and a pull request on GitHub are another, and both see a Word document as `Binary files differ`. **ShowDocx: Write Markdown Mirrors** writes a `.md` copy of each document, meant to be committed alongside it, so those tools can read what changed.
+
+ShowDocx **never creates a mirror on its own.** Creating them is the command above, which says how many and where before writing anything. Setting `showDocx.markdownMirror` to `onChange` keeps mirrors that already exist up to date when their documents change; it will not add new files. `showDocx.markdownMirrorDirectory` puts them somewhere other than beside the document.
+
+Each mirror opens with a comment naming the document it came from, so nobody meeting one in a review has to guess.
+
 ### Comparing revisions
 
 Right-click a `.docx` in the Explorer and choose **Compare with HEAD**, or run it from the editor title bar or the Command Palette. Both revisions open in the normal diff editor as text.
@@ -100,6 +108,7 @@ Like the tool above, the chat API is newer than the supported floor, so the part
 | `ShowDocx: Search in Word Documents` | Search inside every Word document in the workspace |
 | `ShowDocx: Show Document Properties` | Open the properties sidebar |
 | `ShowDocx: Extract Images` | Write every image in the document to a folder |
+| `ShowDocx: Write Markdown Mirrors` | Write a committable `.md` copy of every Word document in the workspace |
 | `ShowDocx: Export as HTML` | Export sanitized semantic HTML |
 | `ShowDocx: Export as Markdown` | Export clean Markdown document (`.md`) |
 | `ShowDocx: Copy as Markdown` | Put the document on the clipboard as Markdown |

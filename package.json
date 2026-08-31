@@ -123,6 +123,11 @@
         "enablement": "activeCustomEditorId == showDocx.docxViewer || resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm"
       },
       {
+        "command": "showDocx.writeMarkdownMirror",
+        "title": "Write Markdown Mirrors",
+        "category": "ShowDocx"
+      },
+      {
         "command": "showDocx.zoomIn",
         "title": "Zoom In",
         "category": "ShowDocx",
@@ -301,6 +306,24 @@
             "Write the export next to the document, under the same name, without asking."
           ],
           "description": "Where HTML, Markdown and printable exports are written."
+        },
+        "showDocx.markdownMirror": {
+          "type": "string",
+          "default": "off",
+          "enum": [
+            "off",
+            "onChange"
+          ],
+          "enumDescriptions": [
+            "Do not keep Markdown mirrors up to date.",
+            "Rewrite a mirror when its document changes on disk. Only mirrors that already exist are updated; run \"ShowDocx: Write Markdown Mirrors\" to create them."
+          ],
+          "description": "Keep a .md mirror of a document up to date, so git and code review can read what changed in it. ShowDocx never creates a mirror on its own."
+        },
+        "showDocx.markdownMirrorDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Where Markdown mirrors are written, relative to the workspace folder. Empty writes each mirror beside its document."
         }
       }
     },

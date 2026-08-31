@@ -3,6 +3,7 @@ import { compareWithHead, isComparableDocx, readDocxAtRef } from './diff/compare
 import { DIFF_SCHEME, DocxDiffContentProvider } from './diff/diffProvider';
 import { DocxEditorProvider } from './docxEditorProvider';
 import { extractImages } from './extractImages';
+import { writeWorkspaceMirrors } from './mirror/markdownMirror';
 import { DocumentTextIndex, showWorkspaceSearch } from './search/workspaceSearch';
 import { validateDocxBytes } from './docxLoader';
 import { disposeLog, getLog } from './log';
@@ -104,6 +105,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('showDocx.showProperties', () => {
       provider.sendToActivePanel('showProperties');
+    }),
+    vscode.commands.registerCommand('showDocx.writeMarkdownMirror', async () => {
+      await writeWorkspaceMirrors({ read: (uri) => provider.readDocument(uri) });
     }),
     vscode.commands.registerCommand('showDocx.extractImages', async (uri?: vscode.Uri) => {
       await extractImages(resolveCompareTarget(uri), {

@@ -8,6 +8,7 @@ import {
 import { DocumentStateStore } from './documentState';
 import { loadValidatedDocx } from './docxLoader';
 import { getLog } from './log';
+import { refreshExistingMirror } from './mirror/markdownMirror';
 import { DocumentStatusBar } from './statusBar';
 import { convertDocxToPlainText, convertDocxToText } from './text/docxText';
 import { countWords, readDocumentProperties } from './text/documentFacts';
@@ -193,6 +194,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         if (entry.ready) {
           void this.sendDocument(entry, true);
         }
+        // Only ever rewrites a mirror that is already there; see markdownMirror.
+        void refreshExistingMirror(document.uri, { read: (uri) => this.readDocument(uri) });
       },
     ));
     entry.subscriptions.push(document.onDidError(
