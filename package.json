@@ -63,6 +63,12 @@
         "category": "ShowDocx"
       },
       {
+        "command": "showDocx.compareWithHead",
+        "title": "Compare with HEAD",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer || resourceExtname == .docx"
+      },
+      {
         "command": "showDocx.exportHtml",
         "title": "Export as HTML",
         "category": "ShowDocx",
@@ -122,6 +128,18 @@
           "command": "showDocx.openWith",
           "when": "resourceExtname == .docx",
           "group": "navigation@20"
+        },
+        {
+          "command": "showDocx.compareWithHead",
+          "when": "resourceExtname == .docx",
+          "group": "navigation@21"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "showDocx.compareWithHead",
+          "when": "activeCustomEditorId == showDocx.docxViewer",
+          "group": "navigation"
         }
       ]
     },

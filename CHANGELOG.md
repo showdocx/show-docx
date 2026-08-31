@@ -4,6 +4,14 @@ All notable changes to ShowDocx are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Compare a DOCX with its committed revision in the diff editor.** Right-click a `.docx` and choose **Compare with HEAD**, or run it from the editor title bar or the Command Palette. Git reports a DOCX as `Binary files differ` and the diff editor cannot open one, so both revisions are converted to readable text and served to the normal diff editor through a virtual read-only `showdocx-diff` document. ([#35](https://github.com/showdocx/show-docx/issues/35))
+
+  The text is normalized for diffing: one line per paragraph and per table row, ordered items all written `1.` so inserting one does not renumber the rest, and embedded images reduced to a digest of their bytes. Word rewrites the whole package on every save, so without this a one-word edit reads as a full rewrite; with it, it is one changed line.
+
+  This is the first feature that needs mammoth in the extension host, which grows `dist/extension.js` from 19 KB to 577 KB. Lazy-loading it is tracked in #30.
+
 ### Fixed
 
 - Export as PDF now prints the page layout it renders on screen. It built the printable file from the semantic text view, so page breaks, headers, footers and page geometry were all discarded by the one command whose whole purpose is reproducing them. Starting the export from Text mode renders the page layout for it, and a document Visual mode cannot render still falls back to the text view. ([#34](https://github.com/showdocx/show-docx/issues/34))

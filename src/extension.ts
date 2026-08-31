@@ -1,14 +1,48 @@
 import * as vscode from 'vscode';
+import { compareWithHead, isComparableDocx, readDocxAtRef } from './diff/compareWithHead';
+import { DIFF_SCHEME, DocxDiffContentProvider } from './diff/diffProvider';
 import { DocxEditorProvider } from './docxEditorProvider';
+import { validateDocxBytes } from './docxLoader';
 import { disposeLog, getLog } from './log';
+import { watchFile } from './watchFile';
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = getLog();
   log.info('ShowDocx activated.');
   const provider = DocxEditorProvider.register(context);
 
+  const diffProvider = new DocxDiffContentProvider({
+    readWorkingTree: (uri) => provider.readDocument(uri),
+    readAtRef: async (uri, ref) => validateDocxBytes(
+      await readDocxAtRef(uri, ref),
+      provider.maxFileSize,
+    ),
+    watch: watchFile,
+  });
+
+  /**
+   * The explorer and SCM menus pass the file they were invoked on; the palette
+   * and the editor title bar pass nothing, so the focused document stands in.
+   */
+  const resolveCompareTarget = (uri?: vscode.Uri): vscode.Uri | undefined => {
+    if (isComparableDocx(uri)) {
+      return uri;
+    }
+    const active = provider.getActiveDocumentUri();
+    if (isComparableDocx(active)) {
+      return active;
+    }
+    const editorUri = vscode.window.activeTextEditor?.document.uri;
+    return isComparableDocx(editorUri) ? editorUri : undefined;
+  };
+
   context.subscriptions.push(
     log,
+    diffProvider,
+    vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, diffProvider),
+    vscode.commands.registerCommand('showDocx.compareWithHead', async (uri?: vscode.Uri) => {
+      await compareWithHead(resolveCompareTarget(uri), diffProvider);
+    }),
     vscode.commands.registerCommand('showDocx.showLog', () => {
       log.show();
     }),

@@ -19,11 +19,15 @@ export async function loadValidatedDocx(
   assertWithinSizeLimit(stat.size, maxSize);
 
   const data = await host.readFile(uri);
+  return validateDocxBytes(data, maxSize);
+}
+
+/** The checks that do not need a file on disk, for bytes from any source. */
+export function validateDocxBytes(data: Uint8Array, maxSize: number): Uint8Array {
   assertWithinSizeLimit(data.byteLength, maxSize);
   if (!isLikelyDocx(data)) {
     throw new InvalidDocxError();
   }
-
   return data;
 }
 

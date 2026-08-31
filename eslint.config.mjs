@@ -18,6 +18,7 @@ export default [
       globals: {
         acquireVsCodeApi: 'readonly',
         console: 'readonly',
+        process: 'readonly',
         document: 'readonly',
         window: 'readonly',
         requestAnimationFrame: 'readonly',
@@ -27,6 +28,7 @@ export default [
         Blob: 'readonly',
         URL: 'readonly',
         Buffer: 'readonly',
+        __dirname: 'readonly',
         __filename: 'readonly',
         HTMLElement: 'readonly',
         HTMLButtonElement: 'readonly',

@@ -18,6 +18,7 @@
 
 - **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes, and document sizing — with `docx-preview`. Pages are broken where the document declares a break, not repaginated.
 - **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
+- **Compare with HEAD** opens a `.docx` and its committed revision side by side in VS Code's own diff editor. Git reports a DOCX as `Binary files differ`; ShowDocx converts both revisions to readable text so the diff shows what actually changed.
 - **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
 - **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
 - **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions. Available in Visual mode; `mammoth` does not carry annotations into Text mode.
@@ -44,10 +45,19 @@
 
 To choose ShowDocx explicitly, right-click a `.docx` file and select **Open with ShowDocx**.
 
+### Comparing revisions
+
+Right-click a `.docx` in the Explorer and choose **Compare with HEAD**, or run it from the editor title bar or the Command Palette. Both revisions open in the normal diff editor as text.
+
+The text is shaped for diffing rather than for reading: one line per paragraph and per table row, ordered list items all written `1.`, and embedded images reduced to a short digest of their bytes. Word rewrites the whole package on every save, so without that normalization each revision would read as a full rewrite. A one-word edit shows up as one changed line.
+
+Requires `git` on the `PATH`, or the `git.path` setting. Deletions in tracked changes are not shown, for the same reason Text mode does not show them.
+
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
+| `ShowDocx: Compare with HEAD` | Compare the document with its committed revision in the diff editor |
 | `ShowDocx: Find in Document` | Open in-document search bar (`Ctrl/Cmd + F`) |
 | `ShowDocx: Export as HTML` | Export sanitized semantic HTML |
 | `ShowDocx: Export as Markdown` | Export clean Markdown document (`.md`) |
@@ -126,6 +136,7 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 - Visual mode prioritizes page fidelity, but highly complex Word layouts may differ from Microsoft Word.
 - HTML export is semantic and intentionally does not reproduce the exact page layout; the PDF export does.
 - If Visual mode cannot render a document at all, the PDF export falls back to the semantic text view rather than failing.
+- Comparing revisions covers `HEAD` and local files. Comparing two selected documents, arbitrary revisions, and following a rename are not implemented yet.
 - Password-protected or encrypted documents are not supported.
 
 ## Publishing

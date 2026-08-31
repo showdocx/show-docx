@@ -11,11 +11,9 @@ import { clamp } from '../shared/format';
 import { DEFAULT_CHUNK_SIZE, splitIntoChunks } from './utils/chunks';
 import { getNonce } from './utils/getNonce';
 import { getWebviewUri } from './utils/getWebviewUri';
+import { watchFile } from './watchFile';
 
 type RenderMode = 'visual' | 'text';
-
-/** Collapses the burst of file events one external save produces into one reload. */
-const WATCH_DEBOUNCE_MS = 250;
 
 interface ViewerSettings {
   defaultMode: RenderMode;
@@ -78,7 +76,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const name = path.basename(uri.path);
     let data: Uint8Array;
     try {
-      data = await this.loadDocument(uri);
+      data = await this.readDocument(uri);
     } catch (error: unknown) {
       getLog().error(`Opening ${name} failed.`, error);
       throw error;
@@ -148,6 +146,11 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     ));
 
     panel.webview.html = this.getHtmlForWebview(panel.webview);
+  }
+
+  /** The document in the focused viewer, for commands invoked without a target. */
+  public getActiveDocumentUri(): vscode.Uri | undefined {
+    return this.getActiveEntry()?.document.uri;
   }
 
   public sendToActivePanel(type: string): boolean {
@@ -433,55 +436,20 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
   private createDocumentHost(enableWatch: boolean): DocxDocumentHost {
     return {
-      readFile: (uri) => this.loadDocument(uri),
-      watch: (uri, onChange) => {
-        if (!enableWatch) {
-          return { dispose: () => undefined };
-        }
-
-        const fileName = path.basename(uri.path);
-        const pattern = uri.scheme === 'file'
-          ? new vscode.RelativePattern(path.dirname(uri.fsPath), fileName)
-          : `**/${fileName}`;
-        const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-        const matches = (candidate: vscode.Uri) => candidate.toString() === uri.toString();
-
-        // Word and LibreOffice write a document several times during a single
-        // save — temp file, rename, final write. Without a delay each of those
-        // events is a full transfer and re-render, and a partially written file
-        // can even pass the signature check and flash a corruption error.
-        let pending: ReturnType<typeof setTimeout> | undefined;
-        const schedule = () => {
-          if (pending) {
-            clearTimeout(pending);
-          }
-          pending = setTimeout(() => {
-            pending = undefined;
-            onChange();
-          }, WATCH_DEBOUNCE_MS);
-        };
-
-        const subscriptions = [
-          watcher.onDidChange((candidate) => matches(candidate) && schedule()),
-          watcher.onDidCreate((candidate) => matches(candidate) && schedule()),
-          watcher.onDidDelete((candidate) => matches(candidate) && schedule()),
-          {
-            dispose: () => {
-              if (pending) {
-                clearTimeout(pending);
-                pending = undefined;
-              }
-            },
-          },
-        ];
-        return vscode.Disposable.from(watcher, ...subscriptions);
-      },
+      readFile: (uri) => this.readDocument(uri),
+      watch: (uri, onChange) => (enableWatch
+        ? watchFile(uri, onChange)
+        : { dispose: () => undefined }),
     };
   }
 
-  private loadDocument(uri: vscode.Uri): Promise<Uint8Array> {
-    const maxSize = this.getSettings().maxFileSizeMb * 1024 * 1024;
-    return loadValidatedDocx(uri, maxSize, vscode.workspace.fs);
+  /** Reads a DOCX under the viewer's own size and signature checks. */
+  public readDocument(uri: vscode.Uri): Promise<Uint8Array> {
+    return loadValidatedDocx(uri, this.maxFileSize, vscode.workspace.fs);
+  }
+
+  public get maxFileSize(): number {
+    return this.getSettings().maxFileSizeMb * 1024 * 1024;
   }
 
   private getSettings(): ViewerSettings {
