@@ -20,6 +20,7 @@ All notable changes to ShowDocx are documented in this file.
 
 ### Changed
 
+- macOS Extension Host tests run for real again. They had been failing since VS Code 1.110 renamed the macOS binary, hidden behind `continue-on-error`.
 - In a restricted workspace ShowDocx no longer opens links a document points to, which is the restriction its `untrustedWorkspaces: limited` declaration had always claimed. Trust the workspace to enable them.
 
 ### Added
