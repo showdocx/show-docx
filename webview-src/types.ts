@@ -20,6 +20,24 @@ export const FIT_MODE_LABELS: Record<FitMode, string> = {
   page: 'Fit page',
 };
 
+/** What a document's package states about itself. Every field is optional. */
+export interface DocumentProperties {
+  title?: string;
+  subject?: string;
+  creator?: string;
+  lastModifiedBy?: string;
+  created?: string;
+  modified?: string;
+  revision?: string;
+  keywords?: string;
+  description?: string;
+  category?: string;
+  application?: string;
+  template?: string;
+  company?: string;
+  pages?: number;
+}
+
 export interface ViewerSettings {
   defaultMode: RenderMode;
   defaultZoom: number;
@@ -51,6 +69,7 @@ export interface DocumentMeta {
   /** Where this document was last left, from a previous session. */
   savedState?: ViewerState;
   query?: string;
+  properties?: DocumentProperties;
 }
 
 export interface IncomingMessage {
@@ -68,6 +87,8 @@ export interface IncomingMessage {
     | 'fitPage'
     | 'toggleMode'
     | 'cyclePageTheme'
+    | 'documentProperties'
+    | 'showProperties'
     | 'search'
     | 'requestExportHtml'
     | 'requestExportMarkdown'
@@ -80,6 +101,7 @@ export interface IncomingMessage {
   settings?: ViewerSettings;
   savedState?: ViewerState;
   query?: string;
+  properties?: DocumentProperties;
   reload?: boolean;
   data?: string;
   index?: number;

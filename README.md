@@ -22,6 +22,9 @@
 - **Readable by AI agents in your editor**: ShowDocx registers a language model tool, so Copilot agent mode and anything else using the same API can read a `.docx` instead of seeing binary. ShowDocx calls no model and sends nothing anywhere.
 - **Search inside every Word document in the workspace**. VS Code's own search skips these files because they are binary, so a folder of specifications cannot answer "which one mentions this clause?" without opening each by hand.
 - **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
+- **Document properties** sidebar: title, author, who last modified it, dates and revision — the questions a contract or specification raises constantly, which in Word take several clicks to answer.
+- **Status bar counts** while a document is open: pages, words and an estimated reading time.
+- **Extract images** writes every picture in a document to a folder, so a diagram can go straight into a README.
 - **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
 - **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions. Available in Visual mode; `mammoth` does not carry annotations into Text mode.
 - **Copy to the clipboard** as Markdown or plain text, in one click. Most of the time the content is wanted in an issue, a message or a code comment rather than in a file.
@@ -84,6 +87,8 @@ The tool needs VS Code 1.95 or later. ShowDocx still declares support from 1.85,
 | `ShowDocx: Compare with HEAD` | Compare the document with its committed revision in the diff editor |
 | `ShowDocx: Find in Document` | Open in-document search bar (`Ctrl/Cmd + F`) |
 | `ShowDocx: Search in Word Documents` | Search inside every Word document in the workspace |
+| `ShowDocx: Show Document Properties` | Open the properties sidebar |
+| `ShowDocx: Extract Images` | Write every image in the document to a folder |
 | `ShowDocx: Export as HTML` | Export sanitized semantic HTML |
 | `ShowDocx: Export as Markdown` | Export clean Markdown document (`.md`) |
 | `ShowDocx: Copy as Markdown` | Put the document on the clipboard as Markdown |

@@ -120,6 +120,16 @@
           return;
         }
 
+        // The host reads these out of the package and sends them separately.
+        const properties = {
+          title: 'ShowDocx sample document',
+          creator: 'ShowDocx',
+          lastModifiedBy: 'A Reviewer',
+          created: '2026-01-02T03:04:05Z',
+          revision: '7'
+        };
+        setTimeout(() => dispatch({ type: 'documentProperties', properties }), 0);
+
         const payload = { type: 'document', ...meta, data: encodeBase64(bytes) };
         // Lets a test replay the message the host sends when the file changes
         // on disk, which is the path that must not disturb the reader.
@@ -164,6 +174,9 @@
         </button>
         <button id="comments-toggle" class="toolbar-button icon-button" type="button" title="Comments and changes" aria-label="Toggle comments and changes" aria-pressed="false">
           <span class="codicon codicon-comment-discussion"></span><span id="comment-count" class="badge hidden"></span>
+        </button>
+        <button id="properties-toggle" class="toolbar-button icon-button" type="button" title="Document properties" aria-label="Toggle document properties" aria-pressed="false">
+          <span class="codicon codicon-info"></span>
         </button>
         <button id="search-toggle" class="toolbar-button icon-button" type="button" title="Find in document (Ctrl+F)" aria-label="Find in document">
           <span class="codicon codicon-search"></span>
@@ -242,6 +255,15 @@
           </button>
         </div>
         <div id="comments-list" class="sidebar-content comments-list"></div>
+      </aside>
+      <aside id="properties-sidebar" class="showdocx-sidebar showdocx-properties hidden" aria-label="Document properties">
+        <div class="sidebar-header">
+          <span class="sidebar-title"><span class="codicon codicon-info"></span> Properties</span>
+          <button id="properties-close" class="toolbar-button icon-button" type="button" title="Close properties" aria-label="Close properties">
+            <span class="codicon codicon-close"></span>
+          </button>
+        </div>
+        <div id="properties-list" class="sidebar-content properties-list"></div>
       </aside>
       <main id="viewport" class="showdocx-viewport">
         <div id="loading" class="showdocx-loading">

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { compareWithHead, isComparableDocx, readDocxAtRef } from './diff/compareWithHead';
 import { DIFF_SCHEME, DocxDiffContentProvider } from './diff/diffProvider';
 import { DocxEditorProvider } from './docxEditorProvider';
+import { extractImages } from './extractImages';
 import { DocumentTextIndex, showWorkspaceSearch } from './search/workspaceSearch';
 import { validateDocxBytes } from './docxLoader';
 import { disposeLog, getLog } from './log';
@@ -89,6 +90,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('showDocx.searchWorkspace', () => {
       showWorkspaceSearch(documentText);
+    }),
+    vscode.commands.registerCommand('showDocx.showProperties', () => {
+      provider.sendToActivePanel('showProperties');
+    }),
+    vscode.commands.registerCommand('showDocx.extractImages', async (uri?: vscode.Uri) => {
+      await extractImages(resolveCompareTarget(uri), {
+        read: (target) => provider.readDocument(target),
+      });
     }),
     // Opens the in-document search already carrying a query. Not in the command
     // palette: it takes an argument, and the workspace search is what sends it.

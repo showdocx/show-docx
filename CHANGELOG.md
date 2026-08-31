@@ -4,6 +4,12 @@ All notable changes to ShowDocx are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **A document properties sidebar** — title, author, who last modified it, created and modified dates, revision, and what produced the file. A property the document does not state is left out rather than shown blank. ([#49](https://github.com/showdocx/show-docx/issues/49))
+- **Pages, words and reading time in the status bar** while a document is open, and clicking it opens the properties. The page count is the pages the viewer actually rendered, falling back to what Word recorded — which is absent from documents written by anything else. ([#51](https://github.com/showdocx/show-docx/issues/51))
+- **Extract Images**, which writes every picture in a document to a folder. The pictures are already stored in the package as ordinary files, so they are copied rather than decoded, and a picture stored twice is written once. ([#50](https://github.com/showdocx/show-docx/issues/50))
+
 ### Changed
 
 - A hidden tab no longer keeps its document and rendered page in memory. `retainContextWhenHidden` was set on every panel, so memory grew with each open document for content nobody was looking at — VS Code's own documentation calls that overhead high. Returning to a tab now re-renders it, measured at about 190ms for a document of 4,000 paragraphs, and the reading position is restored either way. `showDocx.retainHiddenTabs` turns the old behaviour back on. ([#13](https://github.com/showdocx/show-docx/issues/13))

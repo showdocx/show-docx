@@ -185,6 +185,62 @@ test('renders repeatedly from one buffer', async ({ page }) => {
   await expect(page.locator('#error-state')).toBeHidden();
 });
 
+test('shows what the document says about itself', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#properties-toggle').click();
+  await expect(page.locator('#properties-sidebar')).toBeVisible();
+
+  const panel = page.locator('#properties-list');
+  await expect(panel).toContainText('ShowDocx sample document');
+  await expect(panel).toContainText('A Reviewer');
+  await expect(panel).toContainText('Revision');
+
+  // A date is shown the way the reader's machine writes it, not as stored.
+  await expect(panel).not.toContainText('2026-01-02T03:04:05Z');
+  await expect(panel).toContainText('2026');
+
+  await page.locator('#properties-close').click();
+  await expect(page.locator('#properties-sidebar')).toBeHidden();
+});
+
+test('opens one sidebar at a time', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#outline-toggle').click();
+  await expect(page.locator('#outline-sidebar')).toBeVisible();
+
+  await page.locator('#properties-toggle').click();
+  await expect(page.locator('#properties-sidebar')).toBeVisible();
+  await expect(page.locator('#outline-sidebar')).toBeHidden();
+
+  await page.locator('#comments-toggle').click();
+  await expect(page.locator('#comments-sidebar')).toBeVisible();
+  await expect(page.locator('#properties-sidebar')).toBeHidden();
+});
+
+test('tells the host how many pages it rendered', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await expect.poll(async () => page.evaluate(() => {
+    const message = window.__showDocxTest.messages.findLast(
+      (candidate) => candidate.type === 'documentStats',
+    );
+    return message?.pages ?? null;
+  })).toBe(1);
+});
+
+test('does not claim a page count in Text mode, where there are no pages', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?mode=text');
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+
+  expect(await page.evaluate(() => window.__showDocxTest.messages
+    .some((candidate) => candidate.type === 'documentStats'))).toBe(false);
+});
+
 test('asks the host to copy, rather than converting a second time here', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
   await expect(page.locator('#visual-container section')).toBeVisible();

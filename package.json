@@ -111,6 +111,18 @@
         "category": "ShowDocx"
       },
       {
+        "command": "showDocx.showProperties",
+        "title": "Show Document Properties",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.extractImages",
+        "title": "Extract Images",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer || resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm"
+      },
+      {
         "command": "showDocx.zoomIn",
         "title": "Zoom In",
         "category": "ShowDocx",
@@ -169,6 +181,11 @@
           "command": "showDocx.compareWithHead",
           "when": "resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm",
           "group": "navigation@21"
+        },
+        {
+          "command": "showDocx.extractImages",
+          "when": "resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm",
+          "group": "navigation@22"
         }
       ],
       "editor/title": [

@@ -8,6 +8,7 @@ import { CommentsController } from './comments';
 import { getButton, getElement } from './dom';
 import { createExportDocument, createPrintDocument } from './exportDocument';
 import { OutlineController } from './outline';
+import { PropertiesController } from './properties';
 import { SearchController } from './search';
 import { StateManager } from './stateManager';
 import { Toolbar } from './toolbar';
@@ -79,11 +80,19 @@ const search = new SearchController(getActiveContainer);
 const outline = new OutlineController(getActiveContainer, (isOpen) => {
   if (isOpen) {
     comments.close();
+    properties.close();
   }
 });
 const comments = new CommentsController(getActiveContainer, (isOpen) => {
   if (isOpen) {
     outline.close();
+    properties.close();
+  }
+});
+const properties = new PropertiesController((isOpen) => {
+  if (isOpen) {
+    outline.close();
+    comments.close();
   }
 });
 
@@ -273,6 +282,12 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
     case 'cyclePageTheme':
       applyPageTheme(state.nextPageTheme());
       break;
+    case 'documentProperties':
+      properties.update(message.properties);
+      break;
+    case 'showProperties':
+      properties.open();
+      break;
     case 'search':
       search.open(message.query);
       break;
@@ -350,6 +365,20 @@ function abortTransfer(message: string): void {
   vscode.postMessage({ type: 'error', message });
 }
 
+/**
+ * Tells the host how many pages were rendered. Only Visual mode knows: pages
+ * are what docx-preview lays out, and Text mode has none.
+ */
+function reportPageCount(): void {
+  if (!visualRendered) {
+    return;
+  }
+  const pages = visualContainer.querySelectorAll('section').length;
+  if (pages > 0) {
+    vscode.postMessage({ type: 'documentStats', pages });
+  }
+}
+
 function applyPageTheme(theme: PageTheme): void {
   state.setPageTheme(theme);
   app.dataset.pageTheme = theme;
@@ -380,6 +409,7 @@ async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<vo
   toolbar.updateDocument(meta.fileName, meta.fileSize);
   toolbar.updateMode(state.value.mode);
   toolbar.updateWarnings([]);
+  properties.update(undefined);
   zoom.apply();
   showLoading(meta.reload ? 'Document changed. Rendering again...' : 'Rendering document...', 55);
   await renderMode(state.value.mode);
@@ -451,6 +481,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
       viewport.scrollTop = state.value.scrollTop;
     });
     zoom.refit();
+    reportPageCount();
     outline.refresh();
     comments.refresh();
     search.refresh();

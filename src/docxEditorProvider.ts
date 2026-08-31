@@ -8,7 +8,11 @@ import {
 import { DocumentStateStore } from './documentState';
 import { loadValidatedDocx } from './docxLoader';
 import { getLog } from './log';
+import { DocumentStatusBar } from './statusBar';
 import { convertDocxToPlainText, convertDocxToText } from './text/docxText';
+import { countWords, readDocumentProperties } from './text/documentFacts';
+import type { DocumentProperties, DocumentStats } from './text/documentFacts';
+import { extractSearchText } from './text/searchText';
 import { stripDocumentExtension } from '../shared/documentExtensions';
 import { clamp } from '../shared/format';
 import { DEFAULT_CHUNK_SIZE, splitIntoChunks } from './utils/chunks';
@@ -41,6 +45,8 @@ interface WebviewMessage {
   markdown?: string;
   href?: string;
   message?: string;
+  /** Pages the viewer rendered, which only Visual mode can know. */
+  pages?: number;
   /** Where the reader is in the document. Validated before it is stored. */
   state?: unknown;
   /** Raw diagnostic text for the log channel. Never shown to the user. */
@@ -62,6 +68,15 @@ interface PanelEntry {
   subscriptions: vscode.Disposable[];
   /** Messages that arrived before the webview could receive them. */
   pending: unknown[];
+  /** What the document says about itself, read once per document. */
+  facts?: DocumentFacts;
+}
+
+interface DocumentFacts {
+  readonly properties: DocumentProperties;
+  readonly words: number;
+  /** Pages the viewer has actually rendered, once it reports them. */
+  renderedPages?: number;
 }
 
 export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<DocxDocument> {
@@ -70,6 +85,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private activeEntry: PanelEntry | undefined;
   private transferSequence = 0;
   private readonly documentState: DocumentStateStore;
+  private readonly statusBar = new DocumentStatusBar();
 
   public static register(context: vscode.ExtensionContext): DocxEditorProvider {
     const provider = new DocxEditorProvider(context);
@@ -155,6 +171,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         if (webviewPanel.active) {
           this.activeEntry = entry;
         }
+        this.refreshStatusBar();
       },
     ));
     entry.subscriptions.push(panel.onDidDispose(() => {
@@ -164,6 +181,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       if (this.activeEntry === entry) {
         this.activeEntry = [...this.panels].find((candidate) => candidate.panel.active);
       }
+      this.refreshStatusBar();
     }));
     entry.subscriptions.push(document.onDidChange(
       () => {
@@ -223,6 +241,53 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     }
     this.panels.clear();
     this.activeEntry = undefined;
+    this.statusBar.dispose();
+  }
+
+  /** What the focused document says about itself, for the properties command. */
+  public getActiveProperties(): DocumentProperties | undefined {
+    return this.getActiveEntry()?.facts?.properties;
+  }
+
+  private refreshStatusBar(): void {
+    const entry = this.getActiveEntry();
+    if (!entry || !entry.panel.active || !entry.facts) {
+      this.statusBar.hide();
+      return;
+    }
+    const { facts } = entry;
+    const stats: DocumentStats = {
+      words: facts.words,
+      pages: facts.renderedPages ?? facts.properties.pages,
+    };
+    this.statusBar.update(stats);
+  }
+
+  /**
+   * Reads what the document says about itself, once. A failure here is never a
+   * reason to stop showing the document, so it leaves the facts unknown.
+   */
+  private async readFacts(entry: PanelEntry): Promise<void> {
+    try {
+      const data = entry.document.data;
+      const [properties, text] = await Promise.all([
+        readDocumentProperties(data),
+        extractSearchText(data),
+      ]);
+      if (entry.disposed) {
+        return;
+      }
+      entry.facts = { properties, words: countWords(text) };
+      this.refreshStatusBar();
+      // Sent separately rather than with the document: reading the package must
+      // not hold up showing it.
+      void entry.panel.webview.postMessage({ type: 'documentProperties', properties });
+    } catch (error: unknown) {
+      getLog().warn(
+        `Could not read the properties of ${path.basename(entry.document.uri.path)}.`,
+        error,
+      );
+    }
   }
 
   private disposeEntry(entry: PanelEntry): void {
@@ -272,6 +337,12 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           await this.exportPdf(entry.document.uri, message.html);
         }
         break;
+      case 'documentStats':
+        if (entry.facts && typeof message.pages === 'number' && message.pages > 0) {
+          entry.facts.renderedPages = message.pages;
+          this.refreshStatusBar();
+        }
+        break;
       case 'persistState':
         await this.documentState.set(entry.document.uri.toString(), message.state);
         break;
@@ -304,6 +375,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
     const transferId = ++this.transferSequence;
     entry.transferId = transferId;
+    entry.facts = undefined;
+    void this.readFacts(entry);
     const data = entry.document.data;
     const chunks = splitIntoChunks(data, DEFAULT_CHUNK_SIZE);
     const meta = {
@@ -661,6 +734,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         <button id="comments-toggle" class="toolbar-button icon-button" type="button" title="Comments and changes" aria-label="Toggle comments and changes" aria-pressed="false">
           <span class="codicon codicon-comment-discussion"></span><span id="comment-count" class="badge hidden"></span>
         </button>
+        <button id="properties-toggle" class="toolbar-button icon-button" type="button" title="Document properties" aria-label="Toggle document properties" aria-pressed="false">
+          <span class="codicon codicon-info"></span>
+        </button>
         <button id="search-toggle" class="toolbar-button icon-button" type="button" title="Find in document (Ctrl+F)" aria-label="Find in document">
           <span class="codicon codicon-search"></span>
         </button>
@@ -738,6 +814,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           </button>
         </div>
         <div id="comments-list" class="sidebar-content comments-list"></div>
+      </aside>
+      <aside id="properties-sidebar" class="showdocx-sidebar showdocx-properties hidden" aria-label="Document properties">
+        <div class="sidebar-header">
+          <span class="sidebar-title"><span class="codicon codicon-info"></span> Properties</span>
+          <button id="properties-close" class="toolbar-button icon-button" type="button" title="Close properties" aria-label="Close properties">
+            <span class="codicon codicon-close"></span>
+          </button>
+        </div>
+        <div id="properties-list" class="sidebar-content properties-list"></div>
       </aside>
       <main id="viewport" class="showdocx-viewport">
         <div id="loading" class="showdocx-loading">

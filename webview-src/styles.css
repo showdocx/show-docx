@@ -185,6 +185,26 @@ button {
 .outline-level-4 { padding-left: 42px; font-size: 0.8em; color: var(--showdocx-muted); }
 .outline-level-5, .outline-level-6 { padding-left: 54px; font-size: 0.8em; color: var(--showdocx-muted); }
 
+.properties-table {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+  padding: 4px 6px;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+.properties-table dt {
+  color: var(--showdocx-muted);
+  white-space: nowrap;
+}
+
+.properties-table dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .comment-card {
   padding: 8px 10px;
   margin-bottom: 8px;
