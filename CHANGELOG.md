@@ -23,6 +23,8 @@ All notable changes to ShowDocx are documented in this file.
 
 ### Fixed
 
+- The document is centred in the editor again. The viewport is a flex item and had no `flex` of its own, so it sized itself to a single page: on any window wider than one page the document sat against the left edge with the rest of the editor empty.
+- Zooming past the width of the editor no longer puts the left margin of the page out of reach. Zoom scaled the page with a transform, which paints at a new size without changing the layout box, so the page overflowed equally in both directions and scrolling could not reach what had gone off to the left. It scales the layout box now, so every zoom level stays fully reachable.
 - Reloading a document after it changes on disk no longer resets the reader's mode and zoom to the configured defaults. Word rewrites a file several times during one save, so this could throw away the view mid-read.
 - Export as PDF now prints the page layout it renders on screen. It built the printable file from the semantic text view, so page breaks, headers, footers and page geometry were all discarded by the one command whose whole purpose is reproducing them. Starting the export from Text mode renders the page layout for it, and a document Visual mode cannot render still falls back to the text view. ([#34](https://github.com/showdocx/show-docx/issues/34))
 - Visual mode uses the viewer's own page styling again. Its rules were written for the `docx` class `docx-preview` uses by default, but the renderer is configured with `showdocx-visual`, so none of them ever matched — including the print rule that breaks a page between sections.

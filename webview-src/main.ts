@@ -115,7 +115,6 @@ const toolbar = new Toolbar({
 });
 
 const zoom = new ZoomController(
-  zoomFrame,
   zoomSurface,
   state,
   (value) => toolbar.updateZoom(value),
@@ -416,7 +415,6 @@ async function renderMode(mode: RenderMode): Promise<void> {
     textContainer.classList.toggle('hidden', mode !== 'text');
     toolbar.updateWarnings(mode === 'text' ? renderWarnings : []);
     showContent();
-    zoom.refreshLayout();
     requestAnimationFrame(() => {
       viewport.scrollTop = state.value.scrollTop;
     });

@@ -5,9 +5,18 @@ const MIN_ZOOM = 25;
 const MAX_ZOOM = 400;
 const ZOOM_STEP = 10;
 
+/**
+ * Scales the rendered document.
+ *
+ * This uses the CSS `zoom` property rather than a transform. A transform paints
+ * the page at a different size without changing its layout box, so once the page
+ * grew wider than its container it overflowed equally in both directions and the
+ * left margin ended up at a negative offset, where no amount of scrolling could
+ * reach it. `zoom` scales the layout box itself, so the scroll container sees
+ * the real size and the page stays centered and reachable at every level.
+ */
 export class ZoomController {
   public constructor(
-    private readonly frame: HTMLElement,
     private readonly surface: HTMLElement,
     private readonly state: StateManager,
     private readonly onChange: (zoom: number) => void,
@@ -37,18 +46,7 @@ export class ZoomController {
 
   public apply(): void {
     const zoom = this.value;
-    const scale = zoom / 100;
-    this.surface.style.setProperty('--showdocx-zoom', String(scale));
-    this.surface.style.width = `${100 / scale}%`;
+    this.surface.style.setProperty('--showdocx-zoom', String(zoom / 100));
     this.onChange(zoom);
-    this.refreshLayout();
-  }
-
-  public refreshLayout(): void {
-    requestAnimationFrame(() => {
-      const scale = this.value / 100;
-      this.frame.style.height = `${Math.ceil(this.surface.scrollHeight * scale)}px`;
-    });
   }
 }
-

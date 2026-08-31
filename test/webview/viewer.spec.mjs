@@ -187,6 +187,53 @@ test('renders repeatedly from one buffer', async ({ page }) => {
   await expect(page.locator('#error-state')).toBeHidden();
 });
 
+test('centres the page in the editor rather than against its left edge', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  const gaps = await page.evaluate(() => {
+    const viewport = document.getElementById('viewport').getBoundingClientRect();
+    const sheet = document.querySelector('section.showdocx-visual').getBoundingClientRect();
+    return {
+      viewportWidth: Math.round(viewport.width),
+      left: Math.round(sheet.left - viewport.left),
+      right: Math.round(viewport.right - sheet.right),
+    };
+  });
+
+  // The viewport is a flex item: without flex:1 it sizes to one page and the
+  // document sits against the left edge with the rest of the editor empty.
+  expect(gaps.viewportWidth).toBeGreaterThan(1200);
+  expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(2);
+});
+
+test('keeps the whole page reachable when zoomed past the editor width', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  for (let step = 0; step < 10; step += 1) {
+    await page.locator('#zoom-in').click();
+  }
+  await expect(page.locator('#zoom-reset')).toHaveText('200%');
+
+  const layout = await page.evaluate(() => {
+    const element = document.getElementById('viewport');
+    const viewport = element.getBoundingClientRect();
+    const sheet = document.querySelector('section.showdocx-visual').getBoundingClientRect();
+    return {
+      startsAt: Math.round(sheet.left - viewport.left),
+      overflows: element.scrollWidth > element.clientWidth,
+    };
+  });
+
+  // Scrolling only reveals content to the right, so anything at a negative
+  // offset is content the reader can never get back to.
+  expect(layout.startsAt).toBeGreaterThanOrEqual(0);
+  expect(layout.overflows).toBe(true);
+});
+
 test('cycles the page theme and says which one is next', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
   await expect(page.locator('#visual-container section')).toBeVisible();

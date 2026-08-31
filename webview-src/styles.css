@@ -449,6 +449,11 @@ ins, .docx-ins {
 
 .showdocx-viewport {
   position: relative;
+  /* A flex item sizes to its content unless told otherwise, which left the
+     viewport as wide as one page and the document stranded against the left
+     edge of the editor. min-width lets it shrink below that content width. */
+  flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -465,9 +470,10 @@ ins, .docx-ins {
 .zoom-surface {
   --showdocx-zoom: 1;
   min-height: 100%;
-  transform: scale(var(--showdocx-zoom));
-  transform-origin: top center;
-  transition: transform 140ms ease-out;
+  /* zoom, not transform: a transform leaves the layout box unscaled, so a page
+     wider than its container overflowed to a negative offset that no scrolling
+     could reach. */
+  zoom: var(--showdocx-zoom);
 }
 
 .render-container {
@@ -736,7 +742,6 @@ ins, .docx-ins {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .zoom-surface,
   .progress-bar {
     transition: none;
   }
