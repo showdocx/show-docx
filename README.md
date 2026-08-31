@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="media/banner.png" alt="ShowDocx - DOCX Viewer for Visual Studio Code" width="900">
+  <img src="media/banner.jpg" alt="ShowDocx — read, search and diff Word documents in Visual Studio Code" width="900">
 </p>
 
 <p align="center">
@@ -14,37 +14,57 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
 
-## Features
+## What it does
 
-- **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes, and document sizing — with `docx-preview`. Pages are broken where the document declares a break, not repaginated.
-- **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
-- **Compare with HEAD** opens a `.docx` and its committed revision side by side in VS Code's own diff editor. Git reports a DOCX as `Binary files differ`; ShowDocx converts both revisions to readable text so the diff shows what actually changed.
-- **Ask about the open document in chat** with `@docx` — "summarize this contract", "what does clause 4 say". ShowDocx calls no model: it hands the document to the model your own chat is already using.
-- **Readable by AI agents in your editor**: ShowDocx registers a language model tool, so Copilot agent mode and anything else using the same API can read a `.docx` instead of seeing binary. ShowDocx calls no model and sends nothing anywhere.
-- **Search inside every Word document in the workspace**. VS Code's own search skips these files because they are binary, so a folder of specifications cannot answer "which one mentions this clause?" without opening each by hand.
-- **Right-click a selection** to copy it, find it in this document, or find it in every Word document in the workspace.
-- **Page indicator** in Visual mode: which page is on screen, and a prompt to jump to another.
-- **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
-- **Document properties** sidebar: title, author, who last modified it, dates and revision — the questions a contract or specification raises constantly, which in Word take several clicks to answer.
-- **Status bar counts** while a document is open: pages, words and an estimated reading time.
-- **Extract images** writes every picture in a document to a folder, so a diagram can go straight into a README.
-- **Document outline (TOC)** sidebar built from the heading styles the document declares, so it is right for documents whose styles are not named in English and does not invent entries from styles that merely sound like headings.
-- **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions with their authors and dates. Read from the document's own parts, so the list is the same in Visual and Text mode.
-- **Copy to the clipboard** as Markdown or plain text, in one click. Most of the time the content is wanted in an issue, a message or a code comment rather than in a file.
-- **Fit to width and fit to page**, held against the panel size, plus `Ctrl/Cmd` + wheel for continuous zoom.
-- **Export formats**: sanitized semantic HTML, Markdown (`.md`), or printable HTML that opens your browser's print dialog for **Save as PDF**. The printable file carries the Visual-mode page layout — page breaks, headers, footers, tables and embedded images.
-- **Page themes** for Visual mode: paper, sepia, or dark. Most VS Code users run a dark theme; an 80-page white document does not have to be the only option.
-- **Zoom from 25% to 400%** using the toolbar, `Ctrl/Cmd` keyboard shortcuts, or `Ctrl/Cmd` + the mouse wheel.
-- **Hidden tabs are released**, so open documents do not hold their rendered pages in memory while nobody is looking at them. Returning to a tab re-renders and lands back where you were; `showDocx.retainHiddenTabs` trades that back for memory.
-- **Persistent state** remembers rendering mode, zoom, page theme, and reading position per document, across sessions. Close a specification and reopen it next week where you left it.
-- **Automatic reload** updates the preview when the source file changes on disk.
-- **Large-file transfer** sends documents to the webview in 1 MB chunks.
-- **VS Code theme support** covers light, dark, high-contrast, and forced-color modes.
-- **Secure webview** uses a strict Content Security Policy, nonce-protected scripts, restricted external links, and sanitized text output.
+VS Code cannot open a Word document, and git cannot diff one. ShowDocx answers both, without the document leaving your machine.
 
 <p align="center">
-  <img src="media/viewer-preview.png" alt="ShowDocx visual and text viewer preview" width="900">
+  <img src="media/viewer-preview.png" alt="A Word document rendered page-accurately in Visual Studio Code, with its outline in a sidebar" width="900">
 </p>
+
+### The three things nothing else does
+
+- **Diff a document against git.** Right-click a `.docx` and choose **Compare with HEAD**. Git reports Word files as `Binary files differ` and the diff editor cannot open one, so both revisions are converted to readable text and shown in VS Code's own diff editor. The text is shaped so that a one-word edit is one changed line, rather than a full rewrite every time Word re-saves the file.
+- **Search inside every document at once.** VS Code's own search skips these files because they are binary. **Search in Word Documents** looks inside all of them, shows the line each match is on, and opens the document with the term already in its find bar.
+- **Let an agent read a document.** ShowDocx registers a language model tool, so Copilot agent mode — or anything using the same API — reads `spec.docx` instead of giving up on a ZIP archive. `@docx` answers questions about the document you have open. ShowDocx calls no model and makes no network request: the model is the one your own chat is already using.
+
+### Reading
+
+- **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes and page sizing — with `docx-preview`. Pages break where the document declares them; nothing is repaginated.
+- **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
+- **Page themes** — paper, sepia or dark. Most VS Code users run a dark theme, and an 80-page white page does not have to be the only option.
+- **Fit to width, fit to page**, held against the panel as you resize it, plus zoom from 25% to 400% by toolbar, keyboard or `Ctrl/Cmd` + wheel.
+- **A page indicator** showing which page is on screen, and a prompt to jump to another.
+- **Where you left off** — mode, zoom, page theme and reading position, remembered per document across sessions.
+
+<p align="center">
+  <img src="media/page-theme-dark.png" alt="The same document with the dark page theme, which inverts the page but not its artwork" width="900">
+</p>
+
+### Finding things
+
+- **In-document search** (`Ctrl/Cmd + F`) with live highlighting and match navigation, matching phrases that span bold, italic or any other formatting change.
+- **An outline** built from the heading styles the document declares — so it is right for documents whose styles are not named in English, and does not invent entries from styles that merely sound like headings.
+- **Comments and tracked changes** with their authors and dates, read from the document's own parts, so the list is the same in Visual and Text mode — including the text a deletion removed.
+- **Document properties** — title, author, who last modified it, dates and revision. Questions a contract raises constantly, and which take several clicks to answer in Word itself.
+- **Counts in the status bar**: pages, words and an estimated reading time.
+- **A right-click menu on a selection**: copy it, find it here, or find it across every document.
+
+### Getting things out
+
+- **Copy to the clipboard** as Markdown or plain text, in one click. Most of the time the content is wanted in an issue or a message, not in a file.
+- **Export** sanitized HTML, Markdown, or printable HTML that opens your browser's **Save as PDF**. The printable file carries the page layout — breaks, headers, footers, tables and embedded images — rather than a reflowed text view.
+- **Extract images** to a folder, so a diagram can go straight into a README.
+- **Markdown mirrors**, optional and never created without being asked, so `git diff` and pull requests can read what changed in a document.
+
+### How it behaves
+
+- **Four Word formats**: `.docx`, `.docm`, `.dotx` and `.dotm`. All four are the same OOXML package; a macro is never executed.
+- **Automatic reload** when the file changes on disk, without disturbing where you are reading.
+- **Hidden tabs are released** rather than holding their rendered pages in memory for something nobody is looking at.
+- **Large documents** are transferred to the viewer in 1 MB chunks.
+- **Theme support** across light, dark, high-contrast and forced-color modes.
+- **A sandboxed webview** with a strict Content Security Policy, nonce-protected scripts, restricted external links and sanitized output.
 
 ## Usage
 
