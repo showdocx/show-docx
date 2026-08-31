@@ -46,9 +46,17 @@ button {
   font: inherit;
 }
 
+/*
+ * A column, not a grid. The grid declared three rows for four children, of which
+ * only two are ever in flow: the warnings panel is display:none until there is a
+ * warning, and the search bar is absolutely positioned. So the main area landed
+ * in the second "auto" row, took its content height, and left the 1fr row empty
+ * below it -- which a short document in Text mode showed as a half-empty editor.
+ * A column does not care how many children happen to be in flow.
+ */
 .showdocx-app {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   position: relative;
 
   /* Paper: what Word shows, and the default. */
@@ -77,8 +85,8 @@ button {
 
 .showdocx-main-area {
   display: flex;
+  flex: 1;
   min-height: 0;
-  height: 100%;
   width: 100%;
   overflow: hidden;
   position: relative;
@@ -325,6 +333,7 @@ ins, .docx-ins {
 .showdocx-toolbar {
   z-index: 10;
   display: flex;
+  flex: none;
   min-height: 42px;
   align-items: center;
   gap: 8px;
@@ -430,6 +439,7 @@ ins, .docx-ins {
 
 .warnings-panel {
   z-index: 9;
+  flex: none;
   max-height: 150px;
   overflow: auto;
   padding: 10px 16px;

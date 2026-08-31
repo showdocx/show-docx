@@ -187,6 +187,53 @@ test('renders repeatedly from one buffer', async ({ page }) => {
   await expect(page.locator('#error-state')).toBeHidden();
 });
 
+test('fills the editor height whatever the document is', async ({ page }) => {
+  // A short document in Text mode is where this showed: the app shell declared
+  // three grid rows for children of which only two are ever in flow, so the
+  // main area took its content height and left the rest of the editor empty.
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto('/scripts/webview-harness.html?fixture=with-images.docx&mode=text');
+  await expect(page.locator('#text-container')).toContainText('Embedded Image');
+  await page.locator('#outline-toggle').click();
+  await expect(page.locator('#outline-sidebar')).toBeVisible();
+
+  const layout = await page.evaluate(() => {
+    const app = document.getElementById('app').getBoundingClientRect();
+    const main = document.querySelector('.showdocx-main-area').getBoundingClientRect();
+    const sidebar = document.getElementById('outline-sidebar').getBoundingClientRect();
+    return {
+      unusedBelow: Math.round(app.bottom - main.bottom),
+      mainHeight: Math.round(main.height),
+      sidebarHeight: Math.round(sidebar.height),
+    };
+  });
+
+  expect(layout.unusedBelow).toBeLessThanOrEqual(1);
+  expect(layout.sidebarHeight).toBe(layout.mainHeight);
+});
+
+test('makes room for the warnings panel without losing the height below it', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx&mode=text');
+  await expect(page.locator('#text-container')).toContainText('Reviewed Document');
+
+  await page.locator('#warnings-button').click();
+  await expect(page.locator('#warnings-panel')).toBeVisible();
+
+  const layout = await page.evaluate(() => {
+    const app = document.getElementById('app').getBoundingClientRect();
+    const warnings = document.getElementById('warnings-panel').getBoundingClientRect();
+    const main = document.querySelector('.showdocx-main-area').getBoundingClientRect();
+    return {
+      unusedBelow: Math.round(app.bottom - main.bottom),
+      mainStartsBelowWarnings: main.top >= warnings.bottom - 1,
+    };
+  });
+
+  expect(layout.unusedBelow).toBeLessThanOrEqual(1);
+  expect(layout.mainStartsBelowWarnings).toBe(true);
+});
+
 test('centres the page in the editor rather than against its left edge', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto('/scripts/webview-harness.html');

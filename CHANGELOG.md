@@ -23,6 +23,7 @@ All notable changes to ShowDocx are documented in this file.
 
 ### Fixed
 
+- The viewer fills the height of the editor. The app shell declared three grid rows for four children, of which only two are ever in flow — the warnings panel is hidden until there is a warning, and the search bar is positioned outside the flow — so the document area took its content height and left the rest of the editor empty. A short document in Text mode showed this as a half-empty window with a sidebar that stopped partway down.
 - The document is centred in the editor again. The viewport is a flex item and had no `flex` of its own, so it sized itself to a single page: on any window wider than one page the document sat against the left edge with the rest of the editor empty.
 - Zooming past the width of the editor no longer puts the left margin of the page out of reach. Zoom scaled the page with a transform, which paints at a new size without changing the layout box, so the page overflowed equally in both directions and scrolling could not reach what had gone off to the left. It scales the layout box now, so every zoom level stays fully reachable.
 - Reloading a document after it changes on disk no longer resets the reader's mode and zoom to the configured defaults. Word rewrites a file several times during one save, so this could throw away the view mid-read.
