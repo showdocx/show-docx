@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { before, describe, it } from 'mocha';
 import { READ_DOCX_TOOL, resolveToolApi } from '../../src/lm/readDocxTool';
+import { CHAT_PARTICIPANT, resolveChatApi } from '../../src/lm/chatParticipant';
 
 /**
  * Exercises the tool through the API an agent would use. The types are not in
@@ -134,6 +135,46 @@ describe('Detecting the language model tool API', () => {
       LanguageModelToolResult: noop,
       LanguageModelTextPart: noop,
     }));
+  });
+});
+
+describe('Detecting the chat API', () => {
+  it('finds the API on this VS Code', () => {
+    assert.ok(resolveChatApi(vscode), 'this VS Code has the chat API');
+  });
+
+  it('reports no API rather than failing on an editor without one', () => {
+    assert.equal(resolveChatApi(undefined), undefined);
+    assert.equal(resolveChatApi({}), undefined);
+  });
+
+  it('reports no API when only part of it is present', () => {
+    // Half an API would fail when someone asked a question, which reads as the
+    // participant being broken rather than unavailable.
+    const noop = () => undefined;
+    assert.equal(resolveChatApi({ chat: { createChatParticipant: noop } }), undefined);
+    assert.equal(
+      resolveChatApi({
+        chat: { createChatParticipant: noop },
+        lm: { selectChatModels: noop },
+      }),
+      undefined,
+    );
+    assert.ok(resolveChatApi({
+      chat: { createChatParticipant: noop },
+      lm: { selectChatModels: noop },
+      LanguageModelChatMessage: { User: noop },
+    }));
+  });
+
+  it('registers the participant the manifest declares', () => {
+    const extension = vscode.extensions.getExtension('showdocx.show-docx');
+    const declared = (extension?.packageJSON as {
+      contributes?: { chatParticipants?: Array<{ id: string; name: string }> };
+    }).contributes?.chatParticipants ?? [];
+
+    assert.equal(declared[0]?.id, CHAT_PARTICIPANT);
+    assert.equal(declared[0]?.name, 'docx');
   });
 });
 

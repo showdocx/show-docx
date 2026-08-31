@@ -6,6 +6,8 @@ All notable changes to ShowDocx are documented in this file.
 
 ### Added
 
+- **An `@docx` chat participant.** Ask about the Word document you have open — "summarize this contract", "what does clause 4 say" — in the chat panel the editor already has. ShowDocx calls no model: it hands the document to the model your own chat is already using, so this costs nothing and sends nothing anywhere ShowDocx chose. The participant is told to answer only from the document and to say when the document does not contain the answer; a document too long to fit is cut at a line boundary and the answer says so. ([#47](https://github.com/showdocx/show-docx/issues/47))
+
 - **A right-click menu on selected text**: copy it, find it in this document, or find it in every Word document in the workspace. Every entry is a shortcut into something the viewer already did; "where else does this appear?" no longer means retyping the phrase into the find bar. With nothing selected the editor's own menu is left alone. ([#53](https://github.com/showdocx/show-docx/issues/53))
 - **A page indicator** in Visual mode — which page is on screen, updated as you scroll, and a prompt to jump to another. Hidden in Text mode, which has no pages, rather than showing a number that means nothing there. ([#52](https://github.com/showdocx/show-docx/issues/52))
 

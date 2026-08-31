@@ -330,6 +330,15 @@
           ]
         }
       }
+    ],
+    "chatParticipants": [
+      {
+        "id": "showdocx.docx",
+        "name": "docx",
+        "fullName": "ShowDocx",
+        "description": "Ask about the Word document you have open",
+        "isSticky": true
+      }
     ]
   },
   "scripts": {

@@ -19,6 +19,7 @@
 - **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes, and document sizing — with `docx-preview`. Pages are broken where the document declares a break, not repaginated.
 - **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
 - **Compare with HEAD** opens a `.docx` and its committed revision side by side in VS Code's own diff editor. Git reports a DOCX as `Binary files differ`; ShowDocx converts both revisions to readable text so the diff shows what actually changed.
+- **Ask about the open document in chat** with `@docx` — "summarize this contract", "what does clause 4 say". ShowDocx calls no model: it hands the document to the model your own chat is already using.
 - **Readable by AI agents in your editor**: ShowDocx registers a language model tool, so Copilot agent mode and anything else using the same API can read a `.docx` instead of seeing binary. ShowDocx calls no model and sends nothing anywhere.
 - **Search inside every Word document in the workspace**. VS Code's own search skips these files because they are binary, so a folder of specifications cannot answer "which one mentions this clause?" without opening each by hand.
 - **Right-click a selection** to copy it, find it in this document, or find it in every Word document in the workspace.
@@ -81,6 +82,14 @@ An AI agent running in your editor cannot read a `.docx`: opening one returns a 
 Only documents inside the open workspace can be read, and only `.docx` files. A model's arguments can be steered by whatever it has read, so the tool treats a path as a request rather than a permission.
 
 The tool needs VS Code 1.95 or later. ShowDocx still declares support from 1.85, detects the API at runtime, and simply does not register the tool where it is absent.
+
+### Asking about a document in chat
+
+Type `@docx` in the chat panel and ask about the document you have open: "summarize this", "what does clause 4 say", "turn this spec into a task list". With nothing after the mention, it summarizes.
+
+The model is the one your chat is already using — ShowDocx never picks a vendor and never calls a model itself. The document is converted to Markdown and sent as part of your own request, and the participant is told to answer only from it and to say when the document does not contain the answer. A long document is cut at a line boundary and the answer says so, rather than the request failing.
+
+Like the tool above, the chat API is newer than the supported floor, so the participant is simply absent on an older editor.
 
 ## Commands
 

@@ -6,6 +6,7 @@ import { extractImages } from './extractImages';
 import { DocumentTextIndex, showWorkspaceSearch } from './search/workspaceSearch';
 import { validateDocxBytes } from './docxLoader';
 import { disposeLog, getLog } from './log';
+import { registerChatParticipant } from './lm/chatParticipant';
 import { registerReadDocxTool } from './lm/readDocxTool';
 import { watchFile } from './watchFile';
 
@@ -50,6 +51,16 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   if (readDocxTool) {
     context.subscriptions.push(readDocxTool);
+  }
+
+  // Undefined on a VS Code without the chat API, which is supported rather than
+  // a failure, for the same reason the tool above is feature-detected.
+  const chatParticipant = registerChatParticipant(context, {
+    activeDocument: () => provider.getActiveDocumentUri(),
+    read: (uri) => provider.readDocument(uri),
+  });
+  if (chatParticipant) {
+    context.subscriptions.push(chatParticipant);
   }
 
   context.subscriptions.push(
