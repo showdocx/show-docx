@@ -1,6 +1,4 @@
-export interface SearchControllerOptions {
-  onStateChange?: (active: boolean, count: number, current: number) => void;
-}
+import { getButton, getElement, getInput } from './dom';
 
 /** A single match: one mark per text node the match spans. */
 type MatchGroup = HTMLElement[];
@@ -30,10 +28,7 @@ export class SearchController {
   private pendingSearch: number | undefined;
   private activeContainerGetter: () => HTMLElement;
 
-  public constructor(
-    getActiveContainer: () => HTMLElement,
-    private readonly options: SearchControllerOptions = {},
-  ) {
+  public constructor(getActiveContainer: () => HTMLElement) {
     this.activeContainerGetter = getActiveContainer;
 
     this.input.addEventListener('input', () => {
@@ -81,7 +76,6 @@ export class SearchController {
     this.currentIndex = -1;
     this.currentQuery = '';
     this.countLabel.textContent = '0/0';
-    this.options.onStateChange?.(false, 0, 0);
   }
 
   public toggle(): void {
@@ -127,7 +121,6 @@ export class SearchController {
       this.truncated = false;
       this.currentIndex = -1;
       this.countLabel.textContent = '0/0';
-      this.options.onStateChange?.(this.isOpen, 0, 0);
       return;
     }
 
@@ -259,7 +252,6 @@ export class SearchController {
     const total = this.matches.length;
     const current = total > 0 ? this.currentIndex + 1 : 0;
     this.countLabel.textContent = `${current}/${total}${this.truncated ? '+' : ''}`;
-    this.options.onStateChange?.(this.isOpen, total, current);
   }
 }
 
@@ -317,28 +309,4 @@ function isRendered(element: HTMLElement): boolean {
     return element.checkVisibility();
   }
   return true;
-}
-
-function getElement(id: string): HTMLElement {
-  const element = document.getElementById(id);
-  if (!element) {
-    throw new Error(`Missing search element: ${id}`);
-  }
-  return element;
-}
-
-function getInput(id: string): HTMLInputElement {
-  const element = getElement(id);
-  if (!(element instanceof HTMLInputElement)) {
-    throw new Error(`Expected input element: ${id}`);
-  }
-  return element;
-}
-
-function getButton(id: string): HTMLButtonElement {
-  const element = getElement(id);
-  if (!(element instanceof HTMLButtonElement)) {
-    throw new Error(`Expected button element: ${id}`);
-  }
-  return element;
 }

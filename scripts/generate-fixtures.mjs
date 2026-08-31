@@ -271,13 +271,15 @@ await writeFile(
 );
 
 if (!process.argv.includes('--skip-large')) {
-  const largePng = createPng(1500, 1200, true);
+  // Random data so it will not compress: the fixture only has to sit above the
+  // 1 MB limit the "rejects files above the configured limit" test configures.
+  const largePng = createPng(620, 620, true);
   const largeDocument = new Document({
     sections: [
       {
         children: [
           new Paragraph({ text: 'Large Document Fixture', heading: HeadingLevel.TITLE }),
-          new Paragraph('This valid DOCX is intentionally larger than 5 MB.'),
+          new Paragraph('This valid DOCX is intentionally larger than 1 MB.'),
           new Paragraph({
             children: [
               new ImageRun({

@@ -7,6 +7,7 @@ import {
 } from './errors';
 import { loadValidatedDocx } from './docxLoader';
 import { getLog } from './log';
+import { clamp } from '../shared/format';
 import { DEFAULT_CHUNK_SIZE, splitIntoChunks } from './utils/chunks';
 import { getNonce } from './utils/getNonce';
 import { getWebviewUri } from './utils/getWebviewUri';
@@ -659,6 +660,3 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(maximum, Math.max(minimum, value));
-}

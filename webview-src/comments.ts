@@ -1,7 +1,7 @@
+import { getButton, getElement } from './dom';
+
 export interface CommentEntry {
-  id: string;
   author: string;
-  date?: string;
   text: string;
   type: 'comment' | 'insertion' | 'deletion';
   /** The scanned node — used to de-duplicate nested matches. */
@@ -32,10 +32,6 @@ export class CommentsController {
 
   public get isOpen(): boolean {
     return !this.sidebar.classList.contains('hidden');
-  }
-
-  public get count(): number {
-    return this.entries.length;
   }
 
   public open(): void {
@@ -116,7 +112,6 @@ export class CommentsController {
 
   private scanComments(container: HTMLElement): CommentEntry[] {
     const results: CommentEntry[] = [];
-    let sequence = 0;
 
     // docx-preview renders one comment as a "💬" reference span followed by a
     // popover div holding the author, the date and the comment body, and renders
@@ -148,14 +143,12 @@ export class CommentsController {
       }
 
       let author = type === 'comment' ? 'Reviewer' : 'Tracked Change';
-      let date: string | undefined;
       let text: string;
       let anchor: HTMLElement = el;
 
       if (isPopover) {
         const parsed = readPopover(el);
         author = parsed.author ?? author;
-        date = parsed.date;
         text = parsed.text;
         // The popover is display:none until hovered, so scroll to the reference span.
         const reference = el.previousElementSibling;
@@ -170,11 +163,8 @@ export class CommentsController {
         continue;
       }
 
-      sequence += 1;
       results.push({
-        id: `comment-entry-${sequence}`,
         author,
-        date,
         text: text.length > 300 ? text.slice(0, 300) + '...' : text,
         type,
         element: el,
@@ -186,8 +176,8 @@ export class CommentsController {
   }
 }
 
-/** Splits a docx-preview comment popover into its author, date and body text. */
-function readPopover(popover: HTMLElement): { author?: string; date?: string; text: string } {
+/** Splits a docx-preview comment popover into its author and body text. */
+function readPopover(popover: HTMLElement): { author?: string; text: string } {
   const authorEl = popover.querySelector<HTMLElement>('[class*="comment-author"]');
   const dateEl = popover.querySelector<HTMLElement>('[class*="comment-date"]');
 
@@ -204,23 +194,6 @@ function readPopover(popover: HTMLElement): { author?: string; date?: string; te
 
   return {
     author: authorEl?.textContent?.trim() || undefined,
-    date: dateEl?.textContent?.trim() || undefined,
     text: body.join('\n'),
   };
-}
-
-function getElement(id: string): HTMLElement {
-  const element = document.getElementById(id);
-  if (!element) {
-    throw new Error(`Missing comments element: ${id}`);
-  }
-  return element;
-}
-
-function getButton(id: string): HTMLButtonElement {
-  const element = getElement(id);
-  if (!(element instanceof HTMLButtonElement)) {
-    throw new Error(`Expected button element: ${id}`);
-  }
-  return element;
 }

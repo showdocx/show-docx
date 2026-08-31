@@ -1,4 +1,6 @@
 import type { RenderMode } from './types';
+import { getButton, getElement } from './dom';
+import { formatBytes } from '../shared/format';
 
 interface ToolbarCallbacks {
   onModeChange(mode: RenderMode): void;
@@ -92,32 +94,3 @@ export class Toolbar {
   }
 }
 
-function getElement(id: string): HTMLElement {
-  const element = document.getElementById(id);
-  if (!element) {
-    throw new Error(`Missing toolbar element: ${id}`);
-  }
-  return element;
-}
-
-function getButton(id: string): HTMLButtonElement {
-  const element = getElement(id);
-  if (!(element instanceof HTMLButtonElement)) {
-    throw new Error(`Expected button element: ${id}`);
-  }
-  return element;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  const units = ['KB', 'MB', 'GB'];
-  let value = bytes / 1024;
-  let index = 0;
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024;
-    index += 1;
-  }
-  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[index]}`;
-}

@@ -1,14 +1,4 @@
-import type * as vscode from 'vscode';
-
-export class DocxParseError extends Error {
-  public constructor(
-    message: string,
-    public readonly uri: vscode.Uri,
-  ) {
-    super(`Failed to parse DOCX: ${message}`);
-    this.name = 'DocxParseError';
-  }
-}
+import { formatBytes } from '../shared/format';
 
 export class DocxFileTooLargeError extends Error {
   public constructor(
@@ -25,25 +15,6 @@ export class InvalidDocxError extends Error {
     super(message);
     this.name = 'InvalidDocxError';
   }
-}
-
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) {
-    throw new RangeError('Byte count must be a non-negative finite number.');
-  }
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let value = bytes / 1024;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const formatted = value.toFixed(value >= 10 ? 1 : 2).replace(/\.0+$/, '');
-  return `${formatted} ${units[unitIndex]}`;
 }
 
 export function isLikelyDocx(data: Uint8Array): boolean {

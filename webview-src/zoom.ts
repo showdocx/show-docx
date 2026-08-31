@@ -1,3 +1,4 @@
+import { clamp } from '../shared/format';
 import type { StateManager } from './stateManager';
 
 const MIN_ZOOM = 25;
@@ -51,6 +52,3 @@ export class ZoomController {
   }
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(maximum, Math.max(minimum, Math.round(value)));
-}

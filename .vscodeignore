@@ -1,7 +1,7 @@
 .github/**
 .vscode/**
-.vscode-test.mjs
 src/**
+shared/**
 webview-src/**
 test/**
 scripts/**
@@ -20,4 +20,8 @@ implementation_plan.md
 media/icon-source.png
 media/banner.svg
 media/viewer-preview.svg
+# Kept in the repository for documentation, but nothing references them from the
+# packaged extension, so users should not download them on every update.
+media/screenshots/**
+media/docx-icon.svg
 scratch/**

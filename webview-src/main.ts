@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 import * as mammoth from 'mammoth';
 import './styles.css';
 import { CommentsController } from './comments';
+import { getButton, getElement } from './dom';
 import { createExportDocument } from './exportDocument';
 import { OutlineController } from './outline';
 import { SearchController } from './search';
@@ -669,18 +670,3 @@ function toRenderError(error: unknown): string {
   return 'ShowDocx could not render this document.';
 }
 
-function getElement(id: string): HTMLElement {
-  const element = document.getElementById(id);
-  if (!element) {
-    throw new Error(`Missing viewer element: ${id}`);
-  }
-  return element;
-}
-
-function getButton(id: string): HTMLButtonElement {
-  const element = getElement(id);
-  if (!(element instanceof HTMLButtonElement)) {
-    throw new Error(`Expected button element: ${id}`);
-  }
-  return element;
-}

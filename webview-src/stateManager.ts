@@ -1,3 +1,4 @@
+import { clamp } from '../shared/format';
 import type { RenderMode, ViewerSettings, ViewerState, VsCodeApi } from './types';
 
 const DEFAULT_STATE: ViewerState = {
@@ -70,6 +71,3 @@ function isViewerState(value: ViewerState | undefined): value is ViewerState {
     && Number.isFinite(value.scrollTop);
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(maximum, Math.max(minimum, value));
-}
