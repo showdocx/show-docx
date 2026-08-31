@@ -455,23 +455,23 @@ ins, .docx-ins {
   padding-bottom: 32px;
 }
 
-.visual-container .docx-wrapper {
+.visual-container .showdocx-visual-wrapper {
   min-height: 100%;
   padding: 28px 20px;
   background: transparent;
 }
 
-.visual-container .docx-wrapper > section.docx {
+.visual-container .showdocx-visual-wrapper > section.showdocx-visual {
   margin: 0 auto 24px;
   background: white;
   box-shadow: 0 3px 14px var(--showdocx-shadow);
 }
 
-.visual-container .docx-wrapper .toc-1,
-.visual-container .docx-wrapper .toc-2,
-.visual-container .docx-wrapper .toc-3,
-.visual-container .docx-wrapper .toc-4,
-.visual-container .docx-wrapper .toc-5 {
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-1,
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-2,
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-3,
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-4,
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-5 {
   white-space: nowrap !important;
 }
 
@@ -719,7 +719,7 @@ ins, .docx-ins {
 @media (forced-colors: active) {
   .showdocx-toolbar,
   .toolbar-group,
-  .visual-container .docx-wrapper > section.docx,
+  .visual-container .showdocx-visual-wrapper > section.showdocx-visual,
   .showdocx-text th,
   .showdocx-text td {
     border: 1px solid CanvasText;
@@ -771,13 +771,13 @@ ins, .docx-ins {
   }
   
   /* Reset page shadow and background for docx pages */
-  .visual-container .docx-wrapper {
+  .visual-container .showdocx-visual-wrapper {
     padding: 0 !important;
     margin: 0 !important;
     background: transparent !important;
   }
   
-  .visual-container .docx-wrapper > section.docx {
+  .visual-container .showdocx-visual-wrapper > section.showdocx-visual {
     box-shadow: none !important;
     margin: 0 !important;
     page-break-after: always;

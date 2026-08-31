@@ -21,7 +21,7 @@
 - **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
 - **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
 - **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions. Available in Visual mode; `mammoth` does not carry annotations into Text mode.
-- **Export formats**: sanitized semantic HTML, Markdown (`.md`), or printable HTML that opens your browser's print dialog for **Save as PDF**.
+- **Export formats**: sanitized semantic HTML, Markdown (`.md`), or printable HTML that opens your browser's print dialog for **Save as PDF**. The printable file carries the Visual-mode page layout — page breaks, headers, footers, tables and embedded images.
 - **Zoom from 25% to 400%** using the toolbar or `Ctrl/Cmd` keyboard shortcuts.
 - **Persistent state** remembers rendering mode, zoom, and scroll position while the editor remains open.
 - **Automatic reload** updates the preview when the source file changes on disk.
@@ -40,7 +40,7 @@
 3. Press `Ctrl/Cmd + F` to search within the document.
 4. Open the **Outline** or **Comments** sidebars from the toolbar to navigate structure and reviews.
 5. Use the toolbar or `Ctrl/Cmd` + `+`, `-`, and `0` to control zoom.
-6. Export the document as **HTML** or **MD** (Markdown) from the toolbar or Command Palette. **PDF** saves printable HTML and opens it in your browser, where **Print → Save as PDF** produces the file.
+6. Export the document as **HTML** or **MD** (Markdown) from the toolbar or Command Palette. **PDF** saves printable HTML of the page layout and opens it in your browser, where **Print → Save as PDF** produces the file. It prints the pages you see in Visual mode, whichever mode you started the export from.
 
 To choose ShowDocx explicitly, right-click a `.docx` file and select **Open with ShowDocx**.
 
@@ -124,7 +124,8 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 - Search matches at most 2000 results per query, shown as `2000+`.
 - Table of contents, bookmarks, advanced Word fields, and some hyperlinks are limited by the open-source rendering engines.
 - Visual mode prioritizes page fidelity, but highly complex Word layouts may differ from Microsoft Word.
-- HTML export is semantic and intentionally does not reproduce the exact page layout.
+- HTML export is semantic and intentionally does not reproduce the exact page layout; the PDF export does.
+- If Visual mode cannot render a document at all, the PDF export falls back to the semantic text view rather than failing.
 - Password-protected or encrypted documents are not supported.
 
 ## Publishing

@@ -63,6 +63,106 @@ test('exports Markdown and PDF', async ({ page }) => {
   ))).toBe(true);
 });
 
+test('exports the page layout it renders, not the text view', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#export-pdf-button').click();
+  await expect.poll(async () => page.evaluate(() => {
+    const message = window.__showDocxTest.messages.findLast(
+      (candidate) => candidate.type === 'exportPdf',
+    );
+    if (!message) {
+      return null;
+    }
+    return {
+      hasPages: /<section[^>]*class="[^"]*showdocx-visual/.test(message.html),
+      hasGeneratedCss: message.html.includes('.showdocx-visual-wrapper'),
+      hasPageRule: message.html.includes('@page { size: auto; margin: 0; }'),
+      breaksPages: message.html.includes('page-break-after: always'),
+      hasText: message.html.includes('ShowDocx Sample'),
+      hasScript: /<script/i.test(message.html),
+    };
+  })).toEqual({
+    hasPages: true,
+    hasGeneratedCss: true,
+    hasPageRule: true,
+    breaksPages: true,
+    hasText: true,
+    hasScript: false,
+  });
+});
+
+test('renders the page layout for an export started from Text mode', async ({ page }) => {
+  // Visual mode has never been rendered here, so the exporter has to build it.
+  await page.goto('/scripts/webview-harness.html?mode=text');
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+  await expect(page.locator('#visual-container')).toBeHidden();
+
+  await page.locator('#export-pdf-button').click();
+  await expect.poll(async () => page.evaluate(() => {
+    const message = window.__showDocxTest.messages.findLast(
+      (candidate) => candidate.type === 'exportPdf',
+    );
+    return message ? /<section[^>]*class="[^"]*showdocx-visual/.test(message.html) : false;
+  })).toBe(true);
+
+  // The reader stays in Text mode: the render was for the export only.
+  await expect(page.locator('#text-container')).toBeVisible();
+  await expect(page.locator('#visual-container')).toBeHidden();
+  await expect(page.locator('#loading')).toBeHidden();
+  await expect(page.locator('#error-state')).toBeHidden();
+});
+
+test('embeds images in the printable document rather than linking them', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-images.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#export-pdf-button').click();
+  await expect.poll(async () => page.evaluate(() => {
+    const message = window.__showDocxTest.messages.findLast(
+      (candidate) => candidate.type === 'exportPdf',
+    );
+    if (!message) {
+      return null;
+    }
+    const sources = [...message.html.matchAll(/<img[^>]+src="([^"]*)"/g)].map((m) => m[1]);
+    return {
+      count: sources.length,
+      allInline: sources.every((source) => source.startsWith('data:')),
+    };
+  })).toEqual({ count: 1, allInline: true });
+});
+
+test('falls back to the text view when the page layout cannot be rendered', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=empty.docx&mode=text');
+  await expect(page.locator('#zoom-frame')).toBeVisible();
+
+  await page.evaluate(() => {
+    // Stand in for a document docx-preview chokes on. It appends the rendered
+    // wrapper here as its last step, so failing that fails both render attempts.
+    document.getElementById('visual-container').appendChild = () => {
+      throw new Error('visual render is unavailable');
+    };
+  });
+
+  await page.locator('#export-pdf-button').click();
+  await expect.poll(async () => page.evaluate(() => {
+    const message = window.__showDocxTest.messages.findLast(
+      (candidate) => candidate.type === 'exportPdf',
+    );
+    if (!message) {
+      return null;
+    }
+    return {
+      isTextExport: !message.html.includes('showdocx-visual'),
+      isDocument: message.html.includes('<!DOCTYPE html>'),
+    };
+  })).toEqual({ isTextExport: true, isDocument: true });
+
+  await expect(page.locator('#error-state')).toBeHidden();
+});
+
 test('renders repeatedly from one buffer', async ({ page }) => {
   // Every render and export shares currentBuffer. If docx-preview or mammoth
   // detached it, everything after the first consumer would fail on empty bytes.

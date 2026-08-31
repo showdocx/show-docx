@@ -2,6 +2,13 @@
 
 All notable changes to ShowDocx are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Export as PDF now prints the page layout it renders on screen. It built the printable file from the semantic text view, so page breaks, headers, footers and page geometry were all discarded by the one command whose whole purpose is reproducing them. Starting the export from Text mode renders the page layout for it, and a document Visual mode cannot render still falls back to the text view. ([#34](https://github.com/showdocx/show-docx/issues/34))
+- Visual mode uses the viewer's own page styling again. Its rules were written for the `docx` class `docx-preview` uses by default, but the renderer is configured with `showdocx-visual`, so none of them ever matched — including the print rule that breaks a page between sections.
+
 ## [1.1.1] - 2026-08-31
 
 ### Fixed

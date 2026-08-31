@@ -67,6 +67,7 @@ export default [
     languageOptions: {
       globals: {
         process: 'readonly',
+        document: 'readonly',
         window: 'readonly',
       },
     },

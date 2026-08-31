@@ -6,7 +6,7 @@ import * as mammoth from 'mammoth';
 import './styles.css';
 import { CommentsController } from './comments';
 import { getButton, getElement } from './dom';
-import { createExportDocument } from './exportDocument';
+import { createExportDocument, createPrintDocument } from './exportDocument';
 import { OutlineController } from './outline';
 import { SearchController } from './search';
 import { StateManager } from './stateManager';
@@ -49,6 +49,8 @@ let currentBuffer: ArrayBuffer | undefined;
 let currentMeta: DocumentMeta | undefined;
 let renderGeneration = 0;
 let visualRendered = false;
+/** Set once Visual mode has failed, so an export does not retry a render that cannot work. */
+let visualFailed = false;
 let textRendered = false;
 let exportedTextHtml = '';
 let renderWarnings: string[] = [];
@@ -65,7 +67,7 @@ const TRANSFER_TIMEOUT_MS = 30_000;
 
 const VISUAL_FALLBACK_WARNING = 'Visual mode could not render this document. Showing text view instead.';
 
-const TRACKED_CHANGES_WARNING = 'This document contains tracked changes. The text view and the HTML, Markdown and PDF exports show them as accepted.';
+const TRACKED_CHANGES_WARNING = 'This document contains tracked changes. The text view and the HTML and Markdown exports show them as accepted.';
 
 const getActiveContainer = (): HTMLElement => (state.value.mode === 'visual' ? visualContainer : textContainer);
 
@@ -320,6 +322,7 @@ async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<vo
     ) as ArrayBuffer;
   renderGeneration += 1;
   visualRendered = false;
+  visualFailed = false;
   textRendered = false;
   exportedTextHtml = '';
   renderWarnings = [];
@@ -368,6 +371,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
       } catch (visualError: unknown) {
         // Visual rendering failed — fall back to text mode automatically
         console.warn('Visual mode failed, falling back to text mode:', visualError);
+        visualFailed = true;
         renderWarnings.push(VISUAL_FALLBACK_WARNING);
         state.setMode('text');
         toolbar.updateMode('text');
@@ -569,23 +573,99 @@ async function exportPdf(): Promise<void> {
   if (!currentBuffer || !currentMeta) {
     return;
   }
+  const buffer = currentBuffer;
+  const meta = currentMeta;
   toolbar.setBusy(true);
   try {
-    if (!textRendered) {
-      showLoading('Preparing document for PDF...', 75);
-      await renderText(currentBuffer);
-      textRendered = true;
-      showContent();
-    }
-    vscode.postMessage({
-      type: 'exportPdf',
-      html: createExportDocument(currentMeta.fileName, exportedTextHtml),
-    });
+    const html = await buildPrintableDocument(buffer, meta);
+    showContent();
+    vscode.postMessage({ type: 'exportPdf', html });
   } catch (error: unknown) {
     showError(toRenderError(error));
   } finally {
     toolbar.setBusy(false);
   }
+}
+
+/**
+ * Builds what the PDF is printed from. The page layout is the point of this
+ * viewer, so it is preferred whichever mode the user is reading in; the semantic
+ * text view is the fallback for a document Visual mode cannot render at all.
+ */
+async function buildPrintableDocument(
+  buffer: ArrayBuffer,
+  meta: DocumentMeta,
+): Promise<string> {
+  if (await ensureVisualRendered(buffer)) {
+    const body = collectVisualBody();
+    if (body) {
+      return createPrintDocument(meta.fileName, collectVisualStyles(), body);
+    }
+  }
+
+  if (!textRendered) {
+    showLoading('Preparing document for PDF...', 75);
+    await renderText(buffer);
+    textRendered = true;
+  }
+  return createExportDocument(meta.fileName, exportedTextHtml);
+}
+
+/**
+ * Renders Visual mode if it has not been rendered yet, so an export from Text
+ * mode still produces pages. docx-preview measures the container while it
+ * renders, so it has to be attached and visible even though Text mode is what
+ * stays on screen afterwards.
+ */
+async function ensureVisualRendered(buffer: ArrayBuffer): Promise<boolean> {
+  if (visualRendered) {
+    return true;
+  }
+  if (visualFailed) {
+    return false;
+  }
+
+  const wasHidden = visualContainer.classList.contains('hidden');
+  showLoading('Preparing page layout...', 75);
+  zoomFrame.classList.remove('hidden');
+  visualContainer.classList.remove('hidden');
+  try {
+    await renderVisual(buffer);
+    visualRendered = true;
+    return true;
+  } catch (error: unknown) {
+    console.warn('ShowDocx could not render the page layout for export:', error);
+    visualFailed = true;
+    visualContainer.replaceChildren();
+    return false;
+  } finally {
+    visualContainer.classList.toggle('hidden', wasHidden);
+  }
+}
+
+/** The CSS docx-preview generated for the current document. */
+function collectVisualStyles(): string {
+  const container = document.getElementById('showdocx-docx-styles');
+  if (!container) {
+    return '';
+  }
+  return [...container.querySelectorAll('style')]
+    .map((style) => style.textContent ?? '')
+    .join('\n');
+}
+
+/**
+ * The rendered page markup. Sanitized like the text view is: the file is written
+ * to disk and opened in the user's browser, so a hyperlink the document chose
+ * must not be able to run there.
+ */
+function collectVisualBody(): string {
+  if (!visualContainer.firstElementChild) {
+    return '';
+  }
+  return DOMPurify.sanitize(visualContainer.innerHTML, {
+    USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
+  });
 }
 
 function showLoading(label: string, progress: number): void {
