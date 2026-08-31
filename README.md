@@ -198,7 +198,7 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 
 ## Publishing
 
-Tags matching the package version, such as `v1.1.1`, run the full verification suite, package a VSIX, generate a SHA-256 checksum, and create a draft GitHub release.
+Tags matching the package version, such as `v1.2.0`, run the full verification suite, package a VSIX, generate a SHA-256 checksum, and create a draft GitHub release.
 
 Stable releases are also published under the `showdocx` publisher on the
 [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=showdocx.show-docx). Marketplace publishing is currently a separate manual release step.
