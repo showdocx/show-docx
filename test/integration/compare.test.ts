@@ -32,7 +32,7 @@ describe('Comparing a DOCX with HEAD', () => {
   after(async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     if (repository) {
-      await rm(repository, { recursive: true, force: true });
+      await removeTemporary(repository);
     }
   });
 
@@ -92,7 +92,7 @@ describe('Comparing a DOCX with HEAD', () => {
 
       assert.equal(currentDiffInput(), undefined, 'expected no diff editor');
     } finally {
-      await rm(outside, { recursive: true, force: true });
+      await removeTemporary(outside);
     }
   });
 });
@@ -164,6 +164,22 @@ async function createRepository(fixtures: string): Promise<string> {
   await copyFile(path.join(fixtures, 'with-headings.docx'), target);
 
   return root;
+}
+
+/**
+ * Removes a temporary directory, patiently.
+ *
+ * Windows keeps a handle on a directory that was watched or read a moment ago,
+ * and closing an editor does not release it synchronously. This is housekeeping
+ * on a temp directory the operating system will reclaim anyway, so it retries
+ * and then gives up rather than failing a run over it.
+ */
+async function removeTemporary(directory: string): Promise<void> {
+  try {
+    await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+  } catch (error: unknown) {
+    console.warn(`Could not remove the temporary directory ${directory}:`, error);
+  }
 }
 
 function currentDiffInput(): vscode.TabInputTextDiff | undefined {
