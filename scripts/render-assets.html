@@ -24,9 +24,9 @@
 <body>
   <img id="asset" alt="">
   <script>
-    const params = new URLSearchParams(window.location.search);
-    const asset = params.get('asset') === 'preview' ? 'viewer-preview.svg' : 'banner.svg';
-    document.getElementById('asset').src = `/media/${asset}`;
+    // The viewer preview is a real screenshot, taken from the webview itself;
+    // only the banner is drawn.
+    document.getElementById('asset').src = '/media/banner.svg';
   </script>
 </body>
 </html>
