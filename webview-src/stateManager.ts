@@ -32,15 +32,6 @@ export class StateManager {
     this.persist();
   }
 
-  public applyChangedSettings(settings: ViewerSettings): void {
-    this.state = {
-      ...this.state,
-      mode: settings.defaultMode,
-      zoom: clamp(settings.defaultZoom, 25, 400),
-    };
-    this.persist();
-  }
-
   public setMode(mode: RenderMode): void {
     if (this.state.mode === mode) {
       return;

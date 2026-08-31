@@ -1,6 +1,7 @@
 import '@vscode/codicons/dist/codicon.css';
 import { renderAsync } from 'docx-preview';
 import DOMPurify from 'dompurify';
+import JSZip from 'jszip';
 import * as mammoth from 'mammoth';
 import './styles.css';
 import { CommentsController } from './comments';
@@ -53,6 +54,10 @@ let transferWatchdog: number | undefined;
 
 /** A chunked transfer that makes no progress for this long is treated as failed. */
 const TRANSFER_TIMEOUT_MS = 30_000;
+
+const VISUAL_FALLBACK_WARNING = 'Visual mode could not render this document. Showing text view instead.';
+
+const TRACKED_CHANGES_WARNING = 'This document contains tracked changes. The text view and the HTML, Markdown and PDF exports show them as accepted.';
 
 const getActiveContainer = (): HTMLElement => (state.value.mode === 'visual' ? visualContainer : textContainer);
 
@@ -206,13 +211,9 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
       break;
     case 'settingsChanged':
       if (message.settings) {
+        // defaultMode and defaultZoom are initial values: changing an unrelated
+        // setting must not reset the mode and zoom the user is reading at.
         settings = message.settings;
-        state.applyChangedSettings(settings);
-        toolbar.updateMode(state.value.mode);
-        zoom.apply();
-        if (currentBuffer) {
-          await renderMode(state.value.mode);
-        }
       }
       break;
     case 'zoomIn':
@@ -343,7 +344,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
   try {
     if (mode === 'visual' && !visualRendered) {
       renderWarnings = renderWarnings.filter(
-        (warning) => !warning.includes('Visual mode could not render'),
+        (warning) => !warning.includes(VISUAL_FALLBACK_WARNING),
       );
       // docx-preview requires the container to be attached and visible
       zoomFrame.classList.remove('hidden');
@@ -356,9 +357,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
       } catch (visualError: unknown) {
         // Visual rendering failed — fall back to text mode automatically
         console.warn('Visual mode failed, falling back to text mode:', visualError);
-        renderWarnings.push(
-          'Visual mode could not render this document. Showing text view instead.',
-        );
+        renderWarnings.push(VISUAL_FALLBACK_WARNING);
         state.setMode('text');
         toolbar.updateMode('text');
         mode = 'text' as RenderMode;
@@ -474,12 +473,39 @@ async function renderText(arrayBuffer: ArrayBuffer): Promise<void> {
       "p[style-name='Subtitle'] => p.document-subtitle:fresh"
     ]
   };
+  // mammoth drops w:del runs and inlines w:ins runs without reporting either, so
+  // the text view silently differs from the visual view. Detect the markup here
+  // and say so rather than letting the content change without explanation.
+  const trackedChanges = await hasTrackedChanges(arrayBuffer);
+
   const result = await mammoth.convertToHtml({ arrayBuffer }, options);
   exportedTextHtml = DOMPurify.sanitize(result.value, {
     USE_PROFILES: { html: true },
   });
   textContainer.innerHTML = exportedTextHtml;
-  renderWarnings = result.messages.map((message) => message.message);
+  // Append rather than replace: a Visual-mode fallback warning was pushed before
+  // this call and must survive to reach the user.
+  renderWarnings = [
+    ...renderWarnings,
+    ...(trackedChanges ? [TRACKED_CHANGES_WARNING] : []),
+    ...result.messages.map((message) => message.message),
+  ];
+}
+
+/**
+ * Reports whether the document body carries revision markup. Advisory only — a
+ * document that cannot be inspected is reported as having none. The trailing
+ * non-letter guard keeps w:instrText and w:delText from matching.
+ */
+async function hasTrackedChanges(arrayBuffer: ArrayBuffer): Promise<boolean> {
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const body = await zip.file('word/document.xml')?.async('text');
+    return body !== undefined && /<w:(?:ins|del)[^a-zA-Z]/.test(body);
+  } catch (error: unknown) {
+    console.warn('ShowDocx could not inspect the document for tracked changes:', error);
+    return false;
+  }
 }
 
 async function exportHtml(): Promise<void> {

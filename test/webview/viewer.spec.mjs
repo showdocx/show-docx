@@ -146,6 +146,18 @@ test('lists one card per annotation with the real author', async ({ page }) => {
     .toHaveText('a deleted phrase');
 });
 
+test('warns that the text view shows tracked changes as accepted', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx&mode=text');
+  await expect(page.locator('#text-container')).toContainText('Reviewed Document');
+
+  await expect(page.locator('#warnings-button')).toBeVisible();
+  await page.locator('#warnings-button').click();
+  await expect(page.locator('#warnings-panel')).toContainText('tracked changes');
+
+  // The deleted phrase is genuinely absent from the text view — hence the warning.
+  await expect(page.locator('#text-container')).not.toContainText('a deleted phrase');
+});
+
 test('shows the error state when a chunked transfer loses chunks', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?transfer=broken');
 

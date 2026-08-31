@@ -2,6 +2,16 @@
 
 All notable changes to ShowDocx are documented in this file.
 
+## [1.1.1] - 2026-08-31
+
+### Fixed
+
+- Restored the `engines.vscode` range to `^1.85.0`. v1.1.0 raised it to `^1.93.0` with nothing requiring it, which hid the release from everyone on VS Code 1.85-1.92; they now receive it.
+- The webview no longer hangs on "Receiving document..." when a chunked transfer loses a chunk or stalls. Failed transfers show the error state and its retry button.
+- The comments sidebar shows one card per annotation with the real reviewer name, instead of a card per popover fragment attributed to "Reviewer".
+- Changing any ShowDocx setting no longer resets the zoom level and render mode of every open document.
+- The warning shown when Visual mode falls back to Text mode is no longer discarded before it is displayed.
+
 ## [1.1.0] - 2026-08-23
 
 ### Added
