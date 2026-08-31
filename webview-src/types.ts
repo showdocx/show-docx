@@ -106,6 +106,7 @@ export interface DocumentMeta {
   savedState?: ViewerState;
   query?: string;
   properties?: DocumentProperties;
+  page?: number;
   structure?: DocumentStructure;
 }
 
@@ -126,6 +127,7 @@ export interface IncomingMessage {
     | 'cyclePageTheme'
     | 'documentDetails'
     | 'showProperties'
+    | 'goToPage'
     | 'search'
     | 'requestExportHtml'
     | 'requestExportMarkdown'
@@ -139,6 +141,7 @@ export interface IncomingMessage {
   savedState?: ViewerState;
   query?: string;
   properties?: DocumentProperties;
+  page?: number;
   structure?: DocumentStructure;
   reload?: boolean;
   data?: string;

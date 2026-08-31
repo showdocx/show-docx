@@ -7,7 +7,9 @@ import './styles.css';
 import { CommentsController } from './comments';
 import { getButton, getElement } from './dom';
 import { createExportDocument, createPrintDocument } from './exportDocument';
+import { ContextMenu } from './contextMenu';
 import { OutlineController } from './outline';
+import { PageIndicator } from './pages';
 import { PropertiesController } from './properties';
 import { SearchController } from './search';
 import { StateManager } from './stateManager';
@@ -130,6 +132,17 @@ const toolbar = new Toolbar({
   onCycleFit: () => {
     zoom.setFitMode(zoom.nextFitMode());
   },
+});
+
+const pages = new PageIndicator(visualContainer, viewport, () => {
+  vscode.postMessage({ type: 'requestGoToPage', pages: pages.count });
+});
+
+new ContextMenu(viewport, {
+  copySelection: (text) => vscode.postMessage({ type: 'copySelection', text }),
+  findInDocument: (text) => search.open(text),
+  searchWorkspace: (text) => vscode.postMessage({ type: 'searchWorkspaceFor', text }),
+  copyDocumentAsMarkdown: () => askHostFor('copyMarkdown'),
 });
 
 const zoom = new ZoomController(
@@ -289,6 +302,11 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
       break;
     case 'showProperties':
       properties.open();
+      break;
+    case 'goToPage':
+      if (typeof message.page === 'number') {
+        pages.goTo(message.page);
+      }
       break;
     case 'search':
       search.open(message.query);
@@ -485,6 +503,7 @@ async function renderMode(mode: RenderMode): Promise<void> {
       viewport.scrollTop = state.value.scrollTop;
     });
     zoom.refit();
+    pages.refresh(mode === 'visual');
     reportPageCount();
     outline.refresh();
     comments.refresh();

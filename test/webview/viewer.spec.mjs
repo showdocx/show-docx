@@ -185,6 +185,83 @@ test('renders repeatedly from one buffer', async ({ page }) => {
   await expect(page.locator('#error-state')).toBeHidden();
 });
 
+test('offers what to do with a selection, and nothing without one', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  const box = await page.locator('#visual-container p', { hasText: 'Installation' })
+    .first().boundingBox();
+
+  // Right-clicking with nothing selected leaves the editor's own menu alone.
+  await page.mouse.click(box.x + 10, box.y + 4, { button: 'right' });
+  await expect(page.locator('#context-menu')).toBeHidden();
+
+  await openMenuOn(page, 'Installation');
+  const items = await page.locator('#context-menu .context-menu-item').allTextContents();
+  expect(items[0]).toBe('Copy');
+  // Every entry names the phrase, so the menu says what it will act on.
+  expect(items[1]).toContain('Installation');
+  expect(items[2]).toContain('all Word documents');
+});
+
+test('turns a selection into a search, here and across documents', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await openMenuOn(page, 'Installation');
+  await page.locator('#context-menu [data-action="find"]').click();
+
+  // The find bar opens carrying the phrase, rather than waiting for it again.
+  await expect(page.locator('#search-bar')).toBeVisible();
+  await expect(page.locator('#search-input')).toHaveValue(/Installation/);
+  await expect(page.locator('#context-menu')).toBeHidden();
+
+  await openMenuOn(page, 'Configuration');
+  await page.locator('#context-menu [data-action="search"]').click();
+
+  await expect.poll(async () => page.evaluate(() => window.__showDocxTest.messages
+    .findLast((message) => message.type === 'searchWorkspaceFor')?.text)).toContain('Configuration');
+});
+
+test('copies a selection through the host, which owns the clipboard', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await openMenuOn(page, 'Installation');
+  await page.locator('#context-menu [data-action="copy"]').click();
+
+  await expect.poll(async () => page.evaluate(() => window.__showDocxTest.messages
+    .findLast((message) => message.type === 'copySelection')?.text)).toContain('Installation');
+});
+
+test('shows which page is on screen, and only where pages exist', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  const indicator = page.locator('#page-indicator');
+  await expect(indicator).toBeVisible();
+  await expect(indicator).toHaveText('1 / 1');
+  await expect(indicator).toHaveAttribute('aria-label', 'Page 1 of 1');
+
+  // Text mode has no pages, so a number there would be an invention.
+  await page.locator('#mode-text').click();
+  await expect(page.locator('#text-container')).toContainText('Main Document Title');
+  await expect(indicator).toBeHidden();
+
+  await page.locator('#mode-visual').click();
+  await expect(indicator).toBeVisible();
+});
+
+test('asks the host which page to go to, so the prompt is the editor s own', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#page-indicator').click();
+
+  await expect.poll(async () => page.evaluate(() => window.__showDocxTest.messages
+    .findLast((message) => message.type === 'requestGoToPage')?.pages)).toBe(1);
+});
+
 test('keeps the comments panel in Text mode, where the render has none', async ({ page }) => {
   // The panel used to be built by walking the rendered page, so switching to
   // Text mode emptied it — and reviewing comments is the reason the document
@@ -762,3 +839,34 @@ test('shows a user-safe error for corrupted documents', async ({ page }) => {
   await expect(message).not.toContainText(' at ');
   await expect(message).not.toContainText('node_modules');
 });
+
+/**
+ * Selects a paragraph and opens the menu inside it. Right-clicking outside a
+ * selection collapses it, in the viewer as in any editor, so the click has to
+ * land on what was selected.
+ */
+async function openMenuOn(page, phrase) {
+  const paragraph = page.locator('#visual-container p', { hasText: phrase }).first();
+  await selectText(page, phrase);
+  const box = await paragraph.boundingBox();
+  await page.mouse.click(box.x + Math.min(10, box.width / 2), box.y + box.height / 2, {
+    button: 'right',
+  });
+  await expect(page.locator('#context-menu')).toBeVisible();
+}
+
+/** Selects the first paragraph containing a phrase, the way a reader would. */
+async function selectText(page, phrase) {
+  await page.evaluate((needle) => {
+    const element = [...document.querySelectorAll('#visual-container p')]
+      .find((paragraph) => paragraph.textContent.includes(needle));
+    if (!element) {
+      throw new Error(`no paragraph contains ${needle}`);
+    }
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }, phrase);
+}

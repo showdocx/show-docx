@@ -4,6 +4,11 @@ All notable changes to ShowDocx are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **A right-click menu on selected text**: copy it, find it in this document, or find it in every Word document in the workspace. Every entry is a shortcut into something the viewer already did; "where else does this appear?" no longer means retyping the phrase into the find bar. With nothing selected the editor's own menu is left alone. ([#53](https://github.com/showdocx/show-docx/issues/53))
+- **A page indicator** in Visual mode — which page is on screen, updated as you scroll, and a prompt to jump to another. Hidden in Text mode, which has no pages, rather than showing a number that means nothing there. ([#52](https://github.com/showdocx/show-docx/issues/52))
+
 ### Changed
 
 - The comments sidebar reads the document's own comments and tracked changes instead of walking the rendered page. It was empty in Text mode, which the README listed as a limitation but which reads as a bug — reviewing comments is often the reason a document is opened at all. Cards now carry the real author and date, say when a comment is resolved or is a reply, and show the text a deletion removed, which Text mode drops entirely. Following a card to its place still needs Visual mode, which is the only mode that renders anchors. ([#45](https://github.com/showdocx/show-docx/issues/45))

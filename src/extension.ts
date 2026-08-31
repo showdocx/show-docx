@@ -88,8 +88,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('showDocx.search', () => {
       provider.sendToActivePanel('search');
     }),
-    vscode.commands.registerCommand('showDocx.searchWorkspace', () => {
-      showWorkspaceSearch(documentText);
+    vscode.commands.registerCommand('showDocx.searchWorkspace', (query?: unknown) => {
+      showWorkspaceSearch(documentText, typeof query === 'string' ? query : undefined);
     }),
     vscode.commands.registerCommand('showDocx.showProperties', () => {
       provider.sendToActivePanel('showProperties');

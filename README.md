@@ -21,6 +21,8 @@
 - **Compare with HEAD** opens a `.docx` and its committed revision side by side in VS Code's own diff editor. Git reports a DOCX as `Binary files differ`; ShowDocx converts both revisions to readable text so the diff shows what actually changed.
 - **Readable by AI agents in your editor**: ShowDocx registers a language model tool, so Copilot agent mode and anything else using the same API can read a `.docx` instead of seeing binary. ShowDocx calls no model and sends nothing anywhere.
 - **Search inside every Word document in the workspace**. VS Code's own search skips these files because they are binary, so a folder of specifications cannot answer "which one mentions this clause?" without opening each by hand.
+- **Right-click a selection** to copy it, find it in this document, or find it in every Word document in the workspace.
+- **Page indicator** in Visual mode: which page is on screen, and a prompt to jump to another.
 - **In-document search** (`Ctrl/Cmd + F`) with real-time text highlighting and match navigation.
 - **Document properties** sidebar: title, author, who last modified it, dates and revision — the questions a contract or specification raises constantly, which in Word take several clicks to answer.
 - **Status bar counts** while a document is open: pages, words and an estimated reading time.
@@ -170,6 +172,7 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 - Search matches at most 2000 results per query, shown as `2000+`. Workspace search shows at most 300 matches, and at most 20 per document.
 - Table of contents, bookmarks, advanced Word fields, and some hyperlinks are limited by the open-source rendering engines.
 - Visual mode prioritizes page fidelity, but highly complex Word layouts may differ from Microsoft Word.
+- Pages break where the document declares them; ShowDocx does not repaginate, so the page count can differ from what Word reports for the same file.
 - HTML export is semantic and intentionally does not reproduce the exact page layout; the PDF export does.
 - If Visual mode cannot render a document at all, the PDF export falls back to the semantic text view rather than failing.
 - Comparing revisions covers `HEAD` and local files. Comparing two selected documents, arbitrary revisions, and following a rename are not implemented yet.

@@ -126,7 +126,7 @@ interface HitItem extends vscode.QuickPickItem {
  * Opens the search surface: type, see matches from every document as you go,
  * pick one to open the document at it.
  */
-export function showWorkspaceSearch(index: DocumentTextIndex): void {
+export function showWorkspaceSearch(index: DocumentTextIndex, initialQuery?: string): void {
   const picker = vscode.window.createQuickPick<HitItem>();
   picker.title = 'Search in Word documents';
   picker.placeholder = 'Type to search inside every Word document in the workspace';
@@ -207,6 +207,11 @@ export function showWorkspaceSearch(index: DocumentTextIndex): void {
   });
 
   picker.show();
+  if (initialQuery && initialQuery.trim() !== '') {
+    // Arrived from a selection in a document: the reader already typed it once.
+    picker.value = initialQuery;
+    run(initialQuery);
+  }
 }
 
 function toItems(outcome: SearchOutcome, query: string, searched: number): HitItem[] {

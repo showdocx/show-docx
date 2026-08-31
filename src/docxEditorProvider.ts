@@ -49,6 +49,8 @@ interface WebviewMessage {
   message?: string;
   /** Pages the viewer rendered, which only Visual mode can know. */
   pages?: number;
+  /** Text the reader selected, for the actions offered on a selection. */
+  text?: string;
   /** Where the reader is in the document. Validated before it is stored. */
   state?: unknown;
   /** Raw diagnostic text for the log channel. Never shown to the user. */
@@ -351,6 +353,20 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           this.refreshStatusBar();
         }
         break;
+      case 'copySelection':
+        if (typeof message.text === 'string' && message.text !== '') {
+          await vscode.env.clipboard.writeText(message.text);
+          void vscode.window.setStatusBarMessage('ShowDocx copied the selection.', 4000);
+        }
+        break;
+      case 'searchWorkspaceFor':
+        if (typeof message.text === 'string') {
+          void vscode.commands.executeCommand('showDocx.searchWorkspace', message.text);
+        }
+        break;
+      case 'requestGoToPage':
+        await this.askForPage(entry, message.pages ?? 0);
+        break;
       case 'persistState':
         await this.documentState.set(entry.document.uri.toString(), message.state);
         break;
@@ -555,6 +571,30 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
    * comment rather than in a file, which through the export dialog is a
    * seven-step round trip through a file the user then deletes.
    */
+  /**
+   * Asks which page to go to. The input belongs to the editor rather than the
+   * webview, so it looks and behaves like every other prompt in VS Code.
+   */
+  private async askForPage(entry: PanelEntry, total: number): Promise<void> {
+    if (total <= 0) {
+      return;
+    }
+    const answer = await vscode.window.showInputBox({
+      title: 'Go to page',
+      prompt: `This document has ${total} page${total === 1 ? '' : 's'}.`,
+      validateInput: (value) => {
+        const page = Number(value.trim());
+        return Number.isInteger(page) && page >= 1 && page <= total
+          ? undefined
+          : `Enter a page number between 1 and ${total}.`;
+      },
+    });
+    const page = Number((answer ?? '').trim());
+    if (Number.isInteger(page) && page >= 1) {
+      void entry.panel.webview.postMessage({ type: 'goToPage', page });
+    }
+  }
+
   private async copyToClipboard(
     document: DocxDocument,
     format: 'Markdown' | 'plain text',
@@ -776,6 +816,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       <button id="page-theme-button" class="toolbar-button icon-button" type="button" title="Page theme" aria-label="Page theme">
         <span class="codicon codicon-color-mode"></span>
       </button>
+      <button id="page-indicator" class="toolbar-button page-indicator hidden" type="button" title="Go to a page" aria-label="Go to a page">1 / 1</button>
       <button id="fit-button" class="toolbar-button icon-button" type="button" title="Fit the page to the panel" aria-label="Fit the page to the panel">
         <span class="codicon codicon-screen-full"></span>
       </button>
@@ -853,6 +894,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       </main>
     </div>
   </div>
+  <div id="context-menu" class="showdocx-context-menu hidden" role="menu"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
