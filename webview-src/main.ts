@@ -7,7 +7,10 @@ import './styles.css';
 import { CommentsController } from './comments';
 import { getButton, getElement } from './dom';
 import { createExportDocument, createPrintDocument } from './exportDocument';
+import { ContextMenu } from './contextMenu';
 import { OutlineController } from './outline';
+import { PageIndicator } from './pages';
+import { PropertiesController } from './properties';
 import { SearchController } from './search';
 import { StateManager } from './stateManager';
 import { Toolbar } from './toolbar';
@@ -79,11 +82,19 @@ const search = new SearchController(getActiveContainer);
 const outline = new OutlineController(getActiveContainer, (isOpen) => {
   if (isOpen) {
     comments.close();
+    properties.close();
   }
 });
 const comments = new CommentsController(getActiveContainer, (isOpen) => {
   if (isOpen) {
     outline.close();
+    properties.close();
+  }
+});
+const properties = new PropertiesController((isOpen) => {
+  if (isOpen) {
+    outline.close();
+    comments.close();
   }
 });
 
@@ -121,6 +132,17 @@ const toolbar = new Toolbar({
   onCycleFit: () => {
     zoom.setFitMode(zoom.nextFitMode());
   },
+});
+
+const pages = new PageIndicator(visualContainer, viewport, () => {
+  vscode.postMessage({ type: 'requestGoToPage', pages: pages.count });
+});
+
+new ContextMenu(viewport, {
+  copySelection: (text) => vscode.postMessage({ type: 'copySelection', text }),
+  findInDocument: (text) => search.open(text),
+  searchWorkspace: (text) => vscode.postMessage({ type: 'searchWorkspaceFor', text }),
+  copyDocumentAsMarkdown: () => askHostFor('copyMarkdown'),
 });
 
 const zoom = new ZoomController(
@@ -273,8 +295,21 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
     case 'cyclePageTheme':
       applyPageTheme(state.nextPageTheme());
       break;
+    case 'documentDetails':
+      properties.update(message.properties);
+      outline.setHeadingStyles(message.structure?.headingStyles ?? []);
+      comments.setStructure(message.structure);
+      break;
+    case 'showProperties':
+      properties.open();
+      break;
+    case 'goToPage':
+      if (typeof message.page === 'number') {
+        pages.goTo(message.page);
+      }
+      break;
     case 'search':
-      search.open();
+      search.open(message.query);
       break;
     case 'requestExportHtml':
       await exportHtml();
@@ -350,6 +385,20 @@ function abortTransfer(message: string): void {
   vscode.postMessage({ type: 'error', message });
 }
 
+/**
+ * Tells the host how many pages were rendered. Only Visual mode knows: pages
+ * are what docx-preview lays out, and Text mode has none.
+ */
+function reportPageCount(): void {
+  if (!visualRendered) {
+    return;
+  }
+  const pages = visualContainer.querySelectorAll('section').length;
+  if (pages > 0) {
+    vscode.postMessage({ type: 'documentStats', pages });
+  }
+}
+
 function applyPageTheme(theme: PageTheme): void {
   state.setPageTheme(theme);
   app.dataset.pageTheme = theme;
@@ -380,6 +429,9 @@ async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<vo
   toolbar.updateDocument(meta.fileName, meta.fileSize);
   toolbar.updateMode(state.value.mode);
   toolbar.updateWarnings([]);
+  properties.update(undefined);
+  outline.setHeadingStyles([]);
+  comments.setStructure(undefined);
   zoom.apply();
   showLoading(meta.reload ? 'Document changed. Rendering again...' : 'Rendering document...', 55);
   await renderMode(state.value.mode);
@@ -451,6 +503,8 @@ async function renderMode(mode: RenderMode): Promise<void> {
       viewport.scrollTop = state.value.scrollTop;
     });
     zoom.refit();
+    pages.refresh(mode === 'visual');
+    reportPageCount();
     outline.refresh();
     comments.refresh();
     search.refresh();

@@ -8,7 +8,14 @@ import {
 import { DocumentStateStore } from './documentState';
 import { loadValidatedDocx } from './docxLoader';
 import { getLog } from './log';
+import { refreshExistingMirror } from './mirror/markdownMirror';
+import { DocumentStatusBar } from './statusBar';
 import { convertDocxToPlainText, convertDocxToText } from './text/docxText';
+import { countWords, readDocumentProperties } from './text/documentFacts';
+import type { DocumentProperties, DocumentStats } from './text/documentFacts';
+import { readDocumentStructure } from './text/documentStructure';
+import type { DocumentStructure } from './text/documentStructure';
+import { extractSearchText } from './text/searchText';
 import { stripDocumentExtension } from '../shared/documentExtensions';
 import { clamp } from '../shared/format';
 import { DEFAULT_CHUNK_SIZE, splitIntoChunks } from './utils/chunks';
@@ -18,6 +25,14 @@ import { watchFile } from './watchFile';
 
 type RenderMode = 'visual' | 'text';
 type PageTheme = 'paper' | 'sepia' | 'dark';
+
+/**
+ * Read once, at registration: VS Code fixes this when the provider registers,
+ * so changing it takes effect on the next window. The setting says so.
+ */
+function readRetainSetting(): boolean {
+  return vscode.workspace.getConfiguration('showDocx').get<boolean>('retainHiddenTabs', false);
+}
 
 interface ViewerSettings {
   defaultMode: RenderMode;
@@ -33,10 +48,20 @@ interface WebviewMessage {
   markdown?: string;
   href?: string;
   message?: string;
+  /** Pages the viewer rendered, which only Visual mode can know. */
+  pages?: number;
+  /** Text the reader selected, for the actions offered on a selection. */
+  text?: string;
   /** Where the reader is in the document. Validated before it is stored. */
   state?: unknown;
   /** Raw diagnostic text for the log channel. Never shown to the user. */
   detail?: string;
+}
+
+interface ExportOptions {
+  readonly extension: string;
+  readonly filters: Record<string, string[]>;
+  readonly title: string;
 }
 
 interface PanelEntry {
@@ -46,6 +71,18 @@ interface PanelEntry {
   disposed: boolean;
   transferId: number;
   subscriptions: vscode.Disposable[];
+  /** Messages that arrived before the webview could receive them. */
+  pending: unknown[];
+  /** What the document says about itself, read once per document. */
+  facts?: DocumentFacts;
+}
+
+interface DocumentFacts {
+  readonly properties: DocumentProperties;
+  readonly structure: DocumentStructure;
+  readonly words: number;
+  /** Pages the viewer has actually rendered, once it reports them. */
+  renderedPages?: number;
 }
 
 export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<DocxDocument> {
@@ -54,6 +91,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private activeEntry: PanelEntry | undefined;
   private transferSequence = 0;
   private readonly documentState: DocumentStateStore;
+  private readonly statusBar = new DocumentStatusBar();
 
   public static register(context: vscode.ExtensionContext): DocxEditorProvider {
     const provider = new DocxEditorProvider(context);
@@ -64,7 +102,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         {
           supportsMultipleEditorsPerDocument: false,
           webviewOptions: {
-            retainContextWhenHidden: true,
+            // Off by default. Keeping a hidden tab rendered holds its whole
+            // document and DOM in memory for something nobody is looking at,
+            // and that grows with every open tab; VS Code's own documentation
+            // calls the overhead high. The cost of not keeping it is one
+            // re-render on return -- measured at about 190ms for a document of
+            // 4,000 paragraphs -- and the reader lands back where they were,
+            // because the reading position is restored either way.
+            retainContextWhenHidden: readRetainSetting(),
           },
         },
       ),
@@ -119,6 +164,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       disposed: false,
       transferId: 0,
       subscriptions: [],
+      pending: [],
     };
     this.panels.add(entry);
     this.activeEntry = entry;
@@ -131,6 +177,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         if (webviewPanel.active) {
           this.activeEntry = entry;
         }
+        this.refreshStatusBar();
       },
     ));
     entry.subscriptions.push(panel.onDidDispose(() => {
@@ -140,12 +187,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       if (this.activeEntry === entry) {
         this.activeEntry = [...this.panels].find((candidate) => candidate.panel.active);
       }
+      this.refreshStatusBar();
     }));
     entry.subscriptions.push(document.onDidChange(
       () => {
         if (entry.ready) {
           void this.sendDocument(entry, true);
         }
+        // Only ever rewrites a mirror that is already there; see markdownMirror.
+        void refreshExistingMirror(document.uri, { read: (uri) => this.readDocument(uri) });
       },
     ));
     entry.subscriptions.push(document.onDidError(
@@ -163,12 +213,20 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     return this.getActiveEntry()?.document.uri;
   }
 
-  public sendToActivePanel(type: string): boolean {
+  public sendToActivePanel(type: string, payload?: Record<string, unknown>): boolean {
     const entry = this.getActiveEntry();
     if (!entry) {
       return false;
     }
-    void entry.panel.webview.postMessage({ type });
+    const message = { type, ...payload };
+    if (entry.ready) {
+      void entry.panel.webview.postMessage(message);
+    } else {
+      // A command can reach a viewer that is still loading — opening a document
+      // from the workspace search does exactly that. Holding the message is the
+      // difference between the search opening at the match and doing nothing.
+      entry.pending.push(message);
+    }
     return true;
   }
 
@@ -191,6 +249,58 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     }
     this.panels.clear();
     this.activeEntry = undefined;
+    this.statusBar.dispose();
+  }
+
+  /** What the focused document says about itself, for the properties command. */
+  public getActiveProperties(): DocumentProperties | undefined {
+    return this.getActiveEntry()?.facts?.properties;
+  }
+
+  private refreshStatusBar(): void {
+    const entry = this.getActiveEntry();
+    if (!entry || !entry.panel.active || !entry.facts) {
+      this.statusBar.hide();
+      return;
+    }
+    const { facts } = entry;
+    const stats: DocumentStats = {
+      words: facts.words,
+      pages: facts.renderedPages ?? facts.properties.pages,
+    };
+    this.statusBar.update(stats);
+  }
+
+  /**
+   * Reads what the document says about itself, once. A failure here is never a
+   * reason to stop showing the document, so it leaves the facts unknown.
+   */
+  private async readFacts(entry: PanelEntry): Promise<void> {
+    try {
+      const data = entry.document.data;
+      const [properties, structure, text] = await Promise.all([
+        readDocumentProperties(data),
+        readDocumentStructure(data),
+        extractSearchText(data),
+      ]);
+      if (entry.disposed) {
+        return;
+      }
+      entry.facts = { properties, structure, words: countWords(text) };
+      this.refreshStatusBar();
+      // Sent separately rather than with the document: reading the package must
+      // not hold up showing it.
+      void entry.panel.webview.postMessage({
+        type: 'documentDetails',
+        properties,
+        structure,
+      });
+    } catch (error: unknown) {
+      getLog().warn(
+        `Could not read the properties of ${path.basename(entry.document.uri.path)}.`,
+        error,
+      );
+    }
   }
 
   private disposeEntry(entry: PanelEntry): void {
@@ -209,10 +319,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
   private async onMessage(entry: PanelEntry, message: WebviewMessage): Promise<void> {
     switch (message.type) {
-      case 'ready':
+      case 'ready': {
         entry.ready = true;
         await this.sendDocument(entry, false);
+        const pending = entry.pending.splice(0);
+        for (const queued of pending) {
+          void entry.panel.webview.postMessage(queued);
+        }
         break;
+      }
       case 'retry':
         await this.sendDocument(entry, true);
         break;
@@ -234,6 +349,26 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         if (typeof message.html === 'string') {
           await this.exportPdf(entry.document.uri, message.html);
         }
+        break;
+      case 'documentStats':
+        if (entry.facts && typeof message.pages === 'number' && message.pages > 0) {
+          entry.facts.renderedPages = message.pages;
+          this.refreshStatusBar();
+        }
+        break;
+      case 'copySelection':
+        if (typeof message.text === 'string' && message.text !== '') {
+          await vscode.env.clipboard.writeText(message.text);
+          void vscode.window.setStatusBarMessage('ShowDocx copied the selection.', 4000);
+        }
+        break;
+      case 'searchWorkspaceFor':
+        if (typeof message.text === 'string') {
+          void vscode.commands.executeCommand('showDocx.searchWorkspace', message.text);
+        }
+        break;
+      case 'requestGoToPage':
+        await this.askForPage(entry, message.pages ?? 0);
         break;
       case 'persistState':
         await this.documentState.set(entry.document.uri.toString(), message.state);
@@ -267,6 +402,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
     const transferId = ++this.transferSequence;
     entry.transferId = transferId;
+    entry.facts = undefined;
+    void this.readFacts(entry);
     const data = entry.document.data;
     const chunks = splitIntoChunks(data, DEFAULT_CHUNK_SIZE);
     const meta = {
@@ -341,51 +478,87 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 
   private async saveHtml(sourceUri: vscode.Uri, html: string): Promise<void> {
-    const defaultUri = sourceUri.with({
-      path: stripDocumentExtension(sourceUri.path) + '.html',
+    const target = await this.writeExport(sourceUri, html, {
+      extension: '.html',
+      filters: { 'HTML document': ['html', 'htm'] },
+      title: 'Export as HTML',
     });
-    const target = await vscode.window.showSaveDialog({
-      defaultUri,
-      filters: {
-        'HTML document': ['html', 'htm'],
-      },
-      saveLabel: 'Export',
-      title: 'Export DOCX as HTML',
-    });
-    if (!target) {
-      return;
+    if (target) {
+      this.announceExport(target);
     }
-
-    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(html));
-    void vscode.window.showInformationMessage(
-      `ShowDocx exported ${path.basename(target.path)}.`,
-      'Open File',
-    ).then((choice) => {
-      if (choice === 'Open File') {
-        void vscode.commands.executeCommand('vscode.open', target);
-      }
-    });
   }
 
   private async saveMarkdown(document: DocxDocument): Promise<void> {
-    const sourceUri = document.uri;
     const markdown = await this.toMarkdown(document);
-    const defaultUri = sourceUri.with({
-      path: stripDocumentExtension(sourceUri.path) + '.md',
+    const target = await this.writeExport(document.uri, markdown, {
+      extension: '.md',
+      filters: { 'Markdown document': ['md', 'markdown'] },
+      title: 'Export as Markdown',
     });
-    const target = await vscode.window.showSaveDialog({
-      defaultUri,
-      filters: {
-        'Markdown document': ['md', 'markdown'],
-      },
-      saveLabel: 'Export',
-      title: 'Export DOCX as Markdown',
-    });
+    if (target) {
+      this.announceExport(target);
+    }
+  }
+
+  /**
+   * Writes an export and says where it went. Which file that is depends on
+   * showDocx.exportLocation: "ask" opens the save dialog, "alongside" writes
+   * next to the document, because filling in the same dialog on every export of
+   * the same file is friction with no decision behind it.
+   */
+  private async writeExport(
+    sourceUri: vscode.Uri,
+    contents: string,
+    options: ExportOptions,
+  ): Promise<vscode.Uri | undefined> {
+    const target = await this.resolveExportTarget(sourceUri, options);
     if (!target) {
-      return;
+      return undefined;
+    }
+    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(contents));
+    return target;
+  }
+
+  private async resolveExportTarget(
+    sourceUri: vscode.Uri,
+    options: ExportOptions,
+  ): Promise<vscode.Uri | undefined> {
+    const defaultUri = sourceUri.with({
+      path: stripDocumentExtension(sourceUri.path) + options.extension,
+    });
+    if (this.getExportLocation() === 'ask') {
+      return vscode.window.showSaveDialog({
+        defaultUri,
+        filters: options.filters,
+        saveLabel: 'Export',
+        title: options.title,
+      });
     }
 
-    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(markdown));
+    // Skipping the dialog must not mean silently replacing someone's work.
+    if (await this.exists(defaultUri)) {
+      const choice = await vscode.window.showWarningMessage(
+        `${path.basename(defaultUri.path)} already exists. Replace it?`,
+        { modal: true },
+        'Replace',
+      );
+      if (choice !== 'Replace') {
+        return undefined;
+      }
+    }
+    return defaultUri;
+  }
+
+  private async exists(uri: vscode.Uri): Promise<boolean> {
+    try {
+      await vscode.workspace.fs.stat(uri);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private announceExport(target: vscode.Uri): void {
     void vscode.window.showInformationMessage(
       `ShowDocx exported ${path.basename(target.path)}.`,
       'Open File',
@@ -401,6 +574,30 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
    * comment rather than in a file, which through the export dialog is a
    * seven-step round trip through a file the user then deletes.
    */
+  /**
+   * Asks which page to go to. The input belongs to the editor rather than the
+   * webview, so it looks and behaves like every other prompt in VS Code.
+   */
+  private async askForPage(entry: PanelEntry, total: number): Promise<void> {
+    if (total <= 0) {
+      return;
+    }
+    const answer = await vscode.window.showInputBox({
+      title: 'Go to page',
+      prompt: `This document has ${total} page${total === 1 ? '' : 's'}.`,
+      validateInput: (value) => {
+        const page = Number(value.trim());
+        return Number.isInteger(page) && page >= 1 && page <= total
+          ? undefined
+          : `Enter a page number between 1 and ${total}.`;
+      },
+    });
+    const page = Number((answer ?? '').trim());
+    if (Number.isInteger(page) && page >= 1) {
+      void entry.panel.webview.postMessage({ type: 'goToPage', page });
+    }
+  }
+
   private async copyToClipboard(
     document: DocxDocument,
     format: 'Markdown' | 'plain text',
@@ -453,22 +650,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 
   private async exportPdf(sourceUri: vscode.Uri, html: string): Promise<void> {
-    const defaultUri = sourceUri.with({
-      path: stripDocumentExtension(sourceUri.path) + '.html',
-    });
-
-    const target = await vscode.window.showSaveDialog({
-      defaultUri,
-      filters: {
-        'Printable HTML': ['html', 'htm'],
-      },
-      saveLabel: 'Save',
-      title: 'Save printable HTML, then use Print to PDF in your browser',
-    });
-    if (!target) {
-      return;
-    }
-
     const printHtml = html.includes('</body>')
       ? html.replace(
         '</body>',
@@ -476,7 +657,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       )
       : html;
 
-    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(printHtml));
+    const target = await this.writeExport(sourceUri, printHtml, {
+      extension: '.html',
+      filters: { 'Printable HTML': ['html', 'htm'] },
+      title: 'Save printable HTML, then use Print to PDF in your browser',
+    });
+    if (!target) {
+      return;
+    }
     await vscode.env.openExternal(target);
 
     void vscode.window.showInformationMessage(
@@ -524,6 +712,13 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   /** Reads a DOCX under the viewer's own size and signature checks. */
   public readDocument(uri: vscode.Uri): Promise<Uint8Array> {
     return loadValidatedDocx(uri, this.maxFileSize, vscode.workspace.fs);
+  }
+
+  private getExportLocation(): 'ask' | 'alongside' {
+    return vscode.workspace.getConfiguration('showDocx')
+      .get<'ask' | 'alongside'>('exportLocation', 'ask') === 'alongside'
+      ? 'alongside'
+      : 'ask';
   }
 
   public get maxFileSize(): number {
@@ -590,6 +785,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         <button id="comments-toggle" class="toolbar-button icon-button" type="button" title="Comments and changes" aria-label="Toggle comments and changes" aria-pressed="false">
           <span class="codicon codicon-comment-discussion"></span><span id="comment-count" class="badge hidden"></span>
         </button>
+        <button id="properties-toggle" class="toolbar-button icon-button" type="button" title="Document properties" aria-label="Toggle document properties" aria-pressed="false">
+          <span class="codicon codicon-info"></span>
+        </button>
         <button id="search-toggle" class="toolbar-button icon-button" type="button" title="Find in document (Ctrl+F)" aria-label="Find in document">
           <span class="codicon codicon-search"></span>
         </button>
@@ -621,6 +819,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       <button id="page-theme-button" class="toolbar-button icon-button" type="button" title="Page theme" aria-label="Page theme">
         <span class="codicon codicon-color-mode"></span>
       </button>
+      <button id="page-indicator" class="toolbar-button page-indicator hidden" type="button" title="Go to a page" aria-label="Go to a page">1 / 1</button>
       <button id="fit-button" class="toolbar-button icon-button" type="button" title="Fit the page to the panel" aria-label="Fit the page to the panel">
         <span class="codicon codicon-screen-full"></span>
       </button>
@@ -668,6 +867,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         </div>
         <div id="comments-list" class="sidebar-content comments-list"></div>
       </aside>
+      <aside id="properties-sidebar" class="showdocx-sidebar showdocx-properties hidden" aria-label="Document properties">
+        <div class="sidebar-header">
+          <span class="sidebar-title"><span class="codicon codicon-info"></span> Properties</span>
+          <button id="properties-close" class="toolbar-button icon-button" type="button" title="Close properties" aria-label="Close properties">
+            <span class="codicon codicon-close"></span>
+          </button>
+        </div>
+        <div id="properties-list" class="sidebar-content properties-list"></div>
+      </aside>
       <main id="viewport" class="showdocx-viewport">
         <div id="loading" class="showdocx-loading">
           <div class="spinner" aria-hidden="true"></div>
@@ -689,6 +897,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       </main>
     </div>
   </div>
+  <div id="context-menu" class="showdocx-context-menu hidden" role="menu"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

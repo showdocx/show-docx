@@ -13,6 +13,7 @@
     "src/**/*.ts",
     "test/**/*.ts",
     "shared/**/*.ts",
-    "webview-src/exportDocument.ts"
+    "webview-src/exportDocument.ts",
+    "webview-src/propertyRows.ts"
   ]
 }

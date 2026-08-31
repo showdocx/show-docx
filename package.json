@@ -106,6 +106,28 @@
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
+        "command": "showDocx.searchWorkspace",
+        "title": "Search in Word Documents",
+        "category": "ShowDocx"
+      },
+      {
+        "command": "showDocx.showProperties",
+        "title": "Show Document Properties",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.extractImages",
+        "title": "Extract Images",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer || resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm"
+      },
+      {
+        "command": "showDocx.writeMarkdownMirror",
+        "title": "Write Markdown Mirrors",
+        "category": "ShowDocx"
+      },
+      {
         "command": "showDocx.zoomIn",
         "title": "Zoom In",
         "category": "ShowDocx",
@@ -164,6 +186,11 @@
           "command": "showDocx.compareWithHead",
           "when": "resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm",
           "group": "navigation@21"
+        },
+        {
+          "command": "showDocx.extractImages",
+          "when": "resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm",
+          "group": "navigation@22"
         }
       ],
       "editor/title": [
@@ -171,6 +198,12 @@
           "command": "showDocx.compareWithHead",
           "when": "activeCustomEditorId == showDocx.docxViewer",
           "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "showDocx.searchFor",
+          "when": "false"
         }
       ]
     },
@@ -255,6 +288,42 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically reload the preview when the DOCX file changes on disk."
+        },
+        "showDocx.retainHiddenTabs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep a document rendered while its tab is hidden. Returning to the tab is then instant, at the cost of holding the whole document and its rendered page in memory for every open tab. Leaving this off costs one re-render on return; the reading position is restored either way. Takes effect after the window is reloaded."
+        },
+        "showDocx.exportLocation": {
+          "type": "string",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "alongside"
+          ],
+          "enumDescriptions": [
+            "Choose where each export goes, in a save dialog.",
+            "Write the export next to the document, under the same name, without asking."
+          ],
+          "description": "Where HTML, Markdown and printable exports are written."
+        },
+        "showDocx.markdownMirror": {
+          "type": "string",
+          "default": "off",
+          "enum": [
+            "off",
+            "onChange"
+          ],
+          "enumDescriptions": [
+            "Do not keep Markdown mirrors up to date.",
+            "Rewrite a mirror when its document changes on disk. Only mirrors that already exist are updated; run \"ShowDocx: Write Markdown Mirrors\" to create them."
+          ],
+          "description": "Keep a .md mirror of a document up to date, so git and code review can read what changed in it. ShowDocx never creates a mirror on its own."
+        },
+        "showDocx.markdownMirrorDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Where Markdown mirrors are written, relative to the workspace folder. Empty writes each mirror beside its document."
         }
       }
     },
@@ -283,6 +352,15 @@
             "filePath"
           ]
         }
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "showdocx.docx",
+        "name": "docx",
+        "fullName": "ShowDocx",
+        "description": "Ask about the Word document you have open",
+        "isSticky": true
       }
     ]
   },

@@ -6,6 +6,38 @@ All notable changes to ShowDocx are documented in this file.
 
 ### Added
 
+- **Markdown mirrors**, for reading document changes outside the editor. `git diff` and a pull request on GitHub both see a Word document as `Binary files differ`; a committed `.md` copy makes them readable. **ShowDocx: Write Markdown Mirrors** creates them, saying how many and where first, and `showDocx.markdownMirror: onChange` keeps existing ones current. ShowDocx never creates a mirror on its own — a viewer that quietly adds files to a repository is not one to trust. ([#48](https://github.com/showdocx/show-docx/issues/48))
+
+- **An `@docx` chat participant.** Ask about the Word document you have open — "summarize this contract", "what does clause 4 say" — in the chat panel the editor already has. ShowDocx calls no model: it hands the document to the model your own chat is already using, so this costs nothing and sends nothing anywhere ShowDocx chose. The participant is told to answer only from the document and to say when the document does not contain the answer; a document too long to fit is cut at a line boundary and the answer says so. ([#47](https://github.com/showdocx/show-docx/issues/47))
+
+- **A right-click menu on selected text**: copy it, find it in this document, or find it in every Word document in the workspace. Every entry is a shortcut into something the viewer already did; "where else does this appear?" no longer means retyping the phrase into the find bar. With nothing selected the editor's own menu is left alone. ([#53](https://github.com/showdocx/show-docx/issues/53))
+- **A page indicator** in Visual mode — which page is on screen, updated as you scroll, and a prompt to jump to another. Hidden in Text mode, which has no pages, rather than showing a number that means nothing there. ([#52](https://github.com/showdocx/show-docx/issues/52))
+
+### Changed
+
+- The comments sidebar reads the document's own comments and tracked changes instead of walking the rendered page. It was empty in Text mode, which the README listed as a limitation but which reads as a bug — reviewing comments is often the reason a document is opened at all. Cards now carry the real author and date, say when a comment is resolved or is a reply, and show the text a deletion removed, which Text mode drops entirely. Following a card to its place still needs Visual mode, which is the only mode that renders anchors. ([#45](https://github.com/showdocx/show-docx/issues/45))
+- The outline is built from the heading styles the document declares rather than from CSS class names containing "heading" or "title". The old guess both invented entries — a caption or a table-of-contents style counted — and missed real headings in documents whose styles are not named in English. Levels come from `w:outlineLvl`, from the canonical style name Word stores in English, or from the style a heading is based on. ([#46](https://github.com/showdocx/show-docx/issues/46))
+
+### Added
+
+- **A document properties sidebar** — title, author, who last modified it, created and modified dates, revision, and what produced the file. A property the document does not state is left out rather than shown blank. ([#49](https://github.com/showdocx/show-docx/issues/49))
+- **Pages, words and reading time in the status bar** while a document is open, and clicking it opens the properties. The page count is the pages the viewer actually rendered, falling back to what Word recorded — which is absent from documents written by anything else. ([#51](https://github.com/showdocx/show-docx/issues/51))
+- **Extract Images**, which writes every picture in a document to a folder. The pictures are already stored in the package as ordinary files, so they are copied rather than decoded, and a picture stored twice is written once. ([#50](https://github.com/showdocx/show-docx/issues/50))
+
+### Changed
+
+- A hidden tab no longer keeps its document and rendered page in memory. `retainContextWhenHidden` was set on every panel, so memory grew with each open document for content nobody was looking at — VS Code's own documentation calls that overhead high. Returning to a tab now re-renders it, measured at about 190ms for a document of 4,000 paragraphs, and the reading position is restored either way. `showDocx.retainHiddenTabs` turns the old behaviour back on. ([#13](https://github.com/showdocx/show-docx/issues/13))
+
+### Added
+
+- **Search inside every Word document in the workspace.** VS Code's own search skips these files because they are binary, so a folder of forty specifications could not answer "which one mentions this clause?" without opening each by hand. Matches appear as you type, with the line they were found on; choosing one opens the document with the term already in its search bar. Text is cached against each file's modification time, so only the first search reads the files. ([#43](https://github.com/showdocx/show-docx/issues/43))
+
+  Headers and footers are searched, because that is where a document number or title usually lives. Field codes and text removed by a tracked change are not: neither is text the reader sees.
+
+- **`showDocx.exportLocation`**, which can write an export next to the document instead of asking every time. Anyone converting the same documents repeatedly was filling in an identical save dialog with no decision behind it. Writing over an existing file still asks first. ([#42](https://github.com/showdocx/show-docx/issues/42))
+
+### Added
+
 - **Compare a DOCX with its committed revision in the diff editor.** Right-click a `.docx` and choose **Compare with HEAD**, or run it from the editor title bar or the Command Palette. Git reports a DOCX as `Binary files differ` and the diff editor cannot open one, so both revisions are converted to readable text and served to the normal diff editor through a virtual read-only `showdocx-diff` document. ([#35](https://github.com/showdocx/show-docx/issues/35))
 
   The text is normalized for diffing: one line per paragraph and per table row, ordered items all written `1.` so inserting one does not renumber the rest, and embedded images reduced to a digest of their bytes. Word rewrites the whole package on every save, so without this a one-word edit reads as a full rewrite; with it, it is one changed line.

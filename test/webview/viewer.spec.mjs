@@ -185,6 +185,196 @@ test('renders repeatedly from one buffer', async ({ page }) => {
   await expect(page.locator('#error-state')).toBeHidden();
 });
 
+test('offers what to do with a selection, and nothing without one', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  const box = await page.locator('#visual-container p', { hasText: 'Installation' })
+    .first().boundingBox();
+
+  // Right-clicking with nothing selected leaves the editor's own menu alone.
+  await page.mouse.click(box.x + 10, box.y + 4, { button: 'right' });
+  await expect(page.locator('#context-menu')).toBeHidden();
+
+  await openMenuOn(page, 'Installation');
+  const items = await page.locator('#context-menu .context-menu-item').allTextContents();
+  expect(items[0]).toBe('Copy');
+  // Every entry names the phrase, so the menu says what it will act on.
+  expect(items[1]).toContain('Installation');
+  expect(items[2]).toContain('all Word documents');
+});
+
+test('turns a selection into a search, here and across documents', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await openMenuOn(page, 'Installation');
+  await page.locator('#context-menu [data-action="find"]').click();
+
+  // The find bar opens carrying the phrase, rather than waiting for it again.
+  await expect(page.locator('#search-bar')).toBeVisible();
+  await expect(page.locator('#search-input')).toHaveValue(/Installation/);
+  await expect(page.locator('#context-menu')).toBeHidden();
+
+  await openMenuOn(page, 'Configuration');
+  await page.locator('#context-menu [data-action="search"]').click();
+
+  await expect.poll(async () => page.evaluate(() => window.__showDocxTest.messages
+    .findLast((message) => message.type === 'searchWorkspaceFor')?.text)).toContain('Configuration');
+});
+
+test('copies a selection through the host, which owns the clipboard', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await openMenuOn(page, 'Installation');
+  await page.locator('#context-menu [data-action="copy"]').click();
+
+  await expect.poll(async () => page.evaluate(() => window.__showDocxTest.messages
+    .findLast((message) => message.type === 'copySelection')?.text)).toContain('Installation');
+});
+
+test('shows which page is on screen, and only where pages exist', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  const indicator = page.locator('#page-indicator');
+  await expect(indicator).toBeVisible();
+  await expect(indicator).toHaveText('1 / 1');
+  await expect(indicator).toHaveAttribute('aria-label', 'Page 1 of 1');
+
+  // Text mode has no pages, so a number there would be an invention.
+  await page.locator('#mode-text').click();
+  await expect(page.locator('#text-container')).toContainText('Main Document Title');
+  await expect(indicator).toBeHidden();
+
+  await page.locator('#mode-visual').click();
+  await expect(indicator).toBeVisible();
+});
+
+test('asks the host which page to go to, so the prompt is the editor s own', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#page-indicator').click();
+
+  await expect.poll(async () => page.evaluate(() => window.__showDocxTest.messages
+    .findLast((message) => message.type === 'requestGoToPage')?.pages)).toBe(1);
+});
+
+test('keeps the comments panel in Text mode, where the render has none', async ({ page }) => {
+  // The panel used to be built by walking the rendered page, so switching to
+  // Text mode emptied it — and reviewing comments is the reason the document
+  // was opened. It reads what the document records now, so the mode is
+  // irrelevant to what is listed.
+  await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx&mode=text');
+  await expect(page.locator('#text-container')).toContainText('Reviewed Document');
+
+  await page.locator('#comments-toggle').click();
+  await expect(page.locator('#comments-sidebar')).toBeVisible();
+
+  await expect(page.locator('#comments-list .comment-card')).toHaveCount(3);
+  await expect(page.locator('#comments-list')).toContainText('Alice Reviewer');
+  await expect(page.locator('#comments-list')).toContainText('Please clarify this sentence.');
+  // Including the deleted text, which mammoth drops from the Text view entirely.
+  await expect(page.locator('#comments-list')).toContainText('a deleted phrase');
+});
+
+test('follows a comment to its place in Visual mode only', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+  await page.locator('#comments-toggle').click();
+
+  // Visual mode renders anchors, so a card can be followed.
+  await expect(page.locator('#comments-list .comment-anchored').first()).toBeVisible();
+
+  await page.locator('#mode-text').click();
+  await expect(page.locator('#text-container')).toContainText('Reviewed Document');
+
+  // Text mode renders none, so the cards are listed but not clickable.
+  await expect(page.locator('#comments-list .comment-card')).toHaveCount(3);
+  await expect(page.locator('#comments-list .comment-anchored')).toHaveCount(0);
+});
+
+test('takes heading levels from the styles the document declares', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#outline-toggle').click();
+  await expect(page.locator('#outline-sidebar')).toBeVisible();
+
+  const levels = await page.evaluate(() => [...document.querySelectorAll('#outline-list .outline-item')]
+    .map((item) => ({
+      text: item.textContent.trim(),
+      level: [...item.classList].find((name) => name.startsWith('outline-level-')),
+    })));
+
+  // Title and Heading 1 are both level 1 in this document's styles; 1.1 is
+  // Heading 2. The levels come from the styles, not from the words in a class.
+  expect(levels.find((item) => item.text.includes('Main Document Title'))?.level)
+    .toBe('outline-level-1');
+  expect(levels.find((item) => item.text.includes('Chapter 1'))?.level)
+    .toBe('outline-level-1');
+  expect(levels.find((item) => item.text.includes('1.1 Installation'))?.level)
+    .toBe('outline-level-2');
+});
+
+test('shows what the document says about itself', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#properties-toggle').click();
+  await expect(page.locator('#properties-sidebar')).toBeVisible();
+
+  const panel = page.locator('#properties-list');
+  await expect(panel).toContainText('ShowDocx sample document');
+  await expect(panel).toContainText('A Reviewer');
+  await expect(panel).toContainText('Revision');
+
+  // A date is shown the way the reader's machine writes it, not as stored.
+  await expect(panel).not.toContainText('2026-01-02T03:04:05Z');
+  await expect(panel).toContainText('2026');
+
+  await page.locator('#properties-close').click();
+  await expect(page.locator('#properties-sidebar')).toBeHidden();
+});
+
+test('opens one sidebar at a time', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#outline-toggle').click();
+  await expect(page.locator('#outline-sidebar')).toBeVisible();
+
+  await page.locator('#properties-toggle').click();
+  await expect(page.locator('#properties-sidebar')).toBeVisible();
+  await expect(page.locator('#outline-sidebar')).toBeHidden();
+
+  await page.locator('#comments-toggle').click();
+  await expect(page.locator('#comments-sidebar')).toBeVisible();
+  await expect(page.locator('#properties-sidebar')).toBeHidden();
+});
+
+test('tells the host how many pages it rendered', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await expect.poll(async () => page.evaluate(() => {
+    const message = window.__showDocxTest.messages.findLast(
+      (candidate) => candidate.type === 'documentStats',
+    );
+    return message?.pages ?? null;
+  })).toBe(1);
+});
+
+test('does not claim a page count in Text mode, where there are no pages', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?mode=text');
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+
+  expect(await page.evaluate(() => window.__showDocxTest.messages
+    .some((candidate) => candidate.type === 'documentStats'))).toBe(false);
+});
+
 test('asks the host to copy, rather than converting a second time here', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
   await expect(page.locator('#visual-container section')).toBeVisible();
@@ -454,6 +644,27 @@ test('tells the host where the reader is, so it survives the editor closing', as
   }), { timeout: 5000 }).toEqual({ zoom: 110, pageTheme: 'sepia' });
 });
 
+test('comes back to where the reader was after the view is rebuilt', async ({ page }) => {
+  // What a hidden tab costs once it is not kept rendered: the webview is built
+  // again from scratch. The reading position has to survive that, or the memory
+  // saving is paid for by losing the reader's place.
+  await page.goto('/scripts/webview-harness.html?keepState=1');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#page-theme-button').click();
+  await page.locator('#zoom-in').click();
+  await page.locator('#mode-text').click();
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+  await expect(page.locator('#zoom-reset')).toHaveText('110%');
+
+  await page.reload();
+
+  await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+  await expect(page.locator('#zoom-reset')).toHaveText('110%');
+  await expect(page.locator('#app')).toHaveAttribute('data-page-theme', 'sepia');
+  await expect(page.locator('#mode-text')).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('leaves the reader where they are when the file changes on disk', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
   await expect(page.locator('#visual-container section')).toBeVisible();
@@ -628,3 +839,34 @@ test('shows a user-safe error for corrupted documents', async ({ page }) => {
   await expect(message).not.toContainText(' at ');
   await expect(message).not.toContainText('node_modules');
 });
+
+/**
+ * Selects a paragraph and opens the menu inside it. Right-clicking outside a
+ * selection collapses it, in the viewer as in any editor, so the click has to
+ * land on what was selected.
+ */
+async function openMenuOn(page, phrase) {
+  const paragraph = page.locator('#visual-container p', { hasText: phrase }).first();
+  await selectText(page, phrase);
+  const box = await paragraph.boundingBox();
+  await page.mouse.click(box.x + Math.min(10, box.width / 2), box.y + box.height / 2, {
+    button: 'right',
+  });
+  await expect(page.locator('#context-menu')).toBeVisible();
+}
+
+/** Selects the first paragraph containing a phrase, the way a reader would. */
+async function selectText(page, phrase) {
+  await page.evaluate((needle) => {
+    const element = [...document.querySelectorAll('#visual-container p')]
+      .find((paragraph) => paragraph.textContent.includes(needle));
+    if (!element) {
+      throw new Error(`no paragraph contains ${needle}`);
+    }
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }, phrase);
+}

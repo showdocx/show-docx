@@ -35,7 +35,13 @@
     }
   </style>
   <script>
-    let persistedState;
+    // Mirrors how VS Code keeps webview state across a hidden tab being shown
+    // again: the state outlives the page, the page's variables do not. Cleared
+    // unless a test opts in, so every other test starts from defaults.
+    const STATE_KEY = 'showdocx.harness.state';
+    if (!new URLSearchParams(window.location.search).has('keepState')) {
+      sessionStorage.removeItem(STATE_KEY);
+    }
     const testState = {
       messages: [],
       printCount: 0
@@ -45,9 +51,12 @@
       testState.printCount += 1;
     };
     window.acquireVsCodeApi = () => ({
-      getState: () => persistedState,
+      getState: () => {
+        const raw = sessionStorage.getItem(STATE_KEY);
+        return raw ? JSON.parse(raw) : undefined;
+      },
       setState: (state) => {
-        persistedState = state;
+        sessionStorage.setItem(STATE_KEY, JSON.stringify(state));
       },
       postMessage: async (message) => {
         testState.messages.push(message);
@@ -111,6 +120,41 @@
           return;
         }
 
+        // Stands in for what the host reads out of the package. The parsing
+        // itself is covered by unit tests against the real fixtures.
+        const properties = {
+          title: 'ShowDocx sample document',
+          creator: 'ShowDocx',
+          lastModifiedBy: 'A Reviewer',
+          created: '2026-01-02T03:04:05Z',
+          revision: '7'
+        };
+        const structure = {
+          headingStyles: [
+            { styleId: 'Title', name: 'Title', level: 1 },
+            { styleId: 'Heading1', name: 'Heading 1', level: 1 },
+            { styleId: 'Heading2', name: 'Heading 2', level: 2 },
+            { styleId: 'Heading3', name: 'Heading 3', level: 3 }
+          ],
+          comments: [],
+          commentOrder: [],
+          revisions: []
+        };
+        if (fixture === 'with-comments.docx') {
+          structure.comments = [{
+            id: '0',
+            author: 'Alice Reviewer',
+            date: '2026-01-01T00:00:00.000Z',
+            text: 'Please clarify this sentence.'
+          }];
+          structure.commentOrder = ['0'];
+          structure.revisions = [
+            { type: 'insertion', author: 'Alice Reviewer', text: 'an inserted phrase' },
+            { type: 'deletion', author: 'Alice Reviewer', text: 'a deleted phrase' }
+          ];
+        }
+        setTimeout(() => dispatch({ type: 'documentDetails', properties, structure }), 0);
+
         const payload = { type: 'document', ...meta, data: encodeBase64(bytes) };
         // Lets a test replay the message the host sends when the file changes
         // on disk, which is the path that must not disturb the reader.
@@ -156,6 +200,9 @@
         <button id="comments-toggle" class="toolbar-button icon-button" type="button" title="Comments and changes" aria-label="Toggle comments and changes" aria-pressed="false">
           <span class="codicon codicon-comment-discussion"></span><span id="comment-count" class="badge hidden"></span>
         </button>
+        <button id="properties-toggle" class="toolbar-button icon-button" type="button" title="Document properties" aria-label="Toggle document properties" aria-pressed="false">
+          <span class="codicon codicon-info"></span>
+        </button>
         <button id="search-toggle" class="toolbar-button icon-button" type="button" title="Find in document (Ctrl+F)" aria-label="Find in document">
           <span class="codicon codicon-search"></span>
         </button>
@@ -187,6 +234,7 @@
       <button id="page-theme-button" class="toolbar-button icon-button" type="button" title="Page theme" aria-label="Page theme">
         <span class="codicon codicon-color-mode"></span>
       </button>
+      <button id="page-indicator" class="toolbar-button page-indicator hidden" type="button" title="Go to a page" aria-label="Go to a page">1 / 1</button>
       <button id="fit-button" class="toolbar-button icon-button" type="button" title="Fit the page to the panel" aria-label="Fit the page to the panel">
         <span class="codicon codicon-screen-full"></span>
       </button>
@@ -234,6 +282,15 @@
         </div>
         <div id="comments-list" class="sidebar-content comments-list"></div>
       </aside>
+      <aside id="properties-sidebar" class="showdocx-sidebar showdocx-properties hidden" aria-label="Document properties">
+        <div class="sidebar-header">
+          <span class="sidebar-title"><span class="codicon codicon-info"></span> Properties</span>
+          <button id="properties-close" class="toolbar-button icon-button" type="button" title="Close properties" aria-label="Close properties">
+            <span class="codicon codicon-close"></span>
+          </button>
+        </div>
+        <div id="properties-list" class="sidebar-content properties-list"></div>
+      </aside>
       <main id="viewport" class="showdocx-viewport">
         <div id="loading" class="showdocx-loading">
           <div class="spinner" aria-hidden="true"></div>
@@ -255,6 +312,7 @@
       </main>
     </div>
   </div>
+  <div id="context-menu" class="showdocx-context-menu hidden" role="menu"></div>
   <script src="/dist/webview/main.js"></script>
 </body>
 </html>

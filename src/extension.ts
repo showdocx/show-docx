@@ -2,8 +2,12 @@ import * as vscode from 'vscode';
 import { compareWithHead, isComparableDocx, readDocxAtRef } from './diff/compareWithHead';
 import { DIFF_SCHEME, DocxDiffContentProvider } from './diff/diffProvider';
 import { DocxEditorProvider } from './docxEditorProvider';
+import { extractImages } from './extractImages';
+import { writeWorkspaceMirrors } from './mirror/markdownMirror';
+import { DocumentTextIndex, showWorkspaceSearch } from './search/workspaceSearch';
 import { validateDocxBytes } from './docxLoader';
 import { disposeLog, getLog } from './log';
+import { registerChatParticipant } from './lm/chatParticipant';
 import { registerReadDocxTool } from './lm/readDocxTool';
 import { watchFile } from './watchFile';
 
@@ -11,6 +15,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const log = getLog();
   log.info('ShowDocx activated.');
   const provider = DocxEditorProvider.register(context);
+  const documentText = new DocumentTextIndex();
 
   const diffProvider = new DocxDiffContentProvider({
     readWorkingTree: (uri) => provider.readDocument(uri),
@@ -49,6 +54,16 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(readDocxTool);
   }
 
+  // Undefined on a VS Code without the chat API, which is supported rather than
+  // a failure, for the same reason the tool above is feature-detected.
+  const chatParticipant = registerChatParticipant(context, {
+    activeDocument: () => provider.getActiveDocumentUri(),
+    read: (uri) => provider.readDocument(uri),
+  });
+  if (chatParticipant) {
+    context.subscriptions.push(chatParticipant);
+  }
+
   context.subscriptions.push(
     log,
     diffProvider,
@@ -84,6 +99,27 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('showDocx.search', () => {
       provider.sendToActivePanel('search');
+    }),
+    vscode.commands.registerCommand('showDocx.searchWorkspace', (query?: unknown) => {
+      showWorkspaceSearch(documentText, typeof query === 'string' ? query : undefined);
+    }),
+    vscode.commands.registerCommand('showDocx.showProperties', () => {
+      provider.sendToActivePanel('showProperties');
+    }),
+    vscode.commands.registerCommand('showDocx.writeMarkdownMirror', async () => {
+      await writeWorkspaceMirrors({ read: (uri) => provider.readDocument(uri) });
+    }),
+    vscode.commands.registerCommand('showDocx.extractImages', async (uri?: vscode.Uri) => {
+      await extractImages(resolveCompareTarget(uri), {
+        read: (target) => provider.readDocument(target),
+      });
+    }),
+    // Opens the in-document search already carrying a query. Not in the command
+    // palette: it takes an argument, and the workspace search is what sends it.
+    vscode.commands.registerCommand('showDocx.searchFor', (query?: unknown) => {
+      provider.sendToActivePanel('search', {
+        query: typeof query === 'string' ? query : undefined,
+      });
     }),
     vscode.commands.registerCommand('showDocx.zoomIn', () => {
       provider.sendToActivePanel('zoomIn');

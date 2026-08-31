@@ -185,6 +185,26 @@ button {
 .outline-level-4 { padding-left: 42px; font-size: 0.8em; color: var(--showdocx-muted); }
 .outline-level-5, .outline-level-6 { padding-left: 54px; font-size: 0.8em; color: var(--showdocx-muted); }
 
+.properties-table {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+  padding: 4px 6px;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+.properties-table dt {
+  color: var(--showdocx-muted);
+  white-space: nowrap;
+}
+
+.properties-table dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .comment-card {
   padding: 8px 10px;
   margin-bottom: 8px;
@@ -264,6 +284,51 @@ button {
   background: var(--vscode-badge-background, #007acc);
   color: var(--vscode-badge-foreground, #ffffff);
   margin-left: 2px;
+}
+
+.page-indicator {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+
+.showdocx-context-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 200px;
+  max-width: 340px;
+  padding: 4px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+  color: var(--vscode-menu-foreground, var(--showdocx-fg));
+  border: 1px solid var(--vscode-menu-border, var(--showdocx-border));
+  border-radius: 5px;
+  box-shadow: 0 2px 12px var(--showdocx-shadow);
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.context-menu-item:hover,
+.context-menu-item:focus-visible {
+  background: var(--vscode-menu-selectionBackground, var(--showdocx-button-active));
+  color: var(--vscode-menu-selectionForeground, var(--showdocx-button-active-fg));
+}
+
+.context-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--vscode-menu-separatorBackground, var(--showdocx-border));
 }
 
 .showdocx-search-bar {
