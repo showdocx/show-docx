@@ -46,16 +46,47 @@ button {
   font: inherit;
 }
 
+/*
+ * A column, not a grid. The grid declared three rows for four children, of which
+ * only two are ever in flow: the warnings panel is display:none until there is a
+ * warning, and the search bar is absolutely positioned. So the main area landed
+ * in the second "auto" row, took its content height, and left the 1fr row empty
+ * below it -- which a short document in Text mode showed as a half-empty editor.
+ * A column does not care how many children happen to be in flow.
+ */
 .showdocx-app {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   position: relative;
+
+  /* Paper: what Word shows, and the default. */
+  --showdocx-page-bg: #ffffff;
+  --showdocx-page-filter: none;
+  --showdocx-page-shadow: 0 3px 14px var(--showdocx-shadow);
+}
+
+.showdocx-app[data-page-theme="sepia"] {
+  --showdocx-page-bg: #f6ecd9;
+}
+
+/*
+ * docx-preview writes the document's own colours inline on every element, so
+ * there is no token left to re-theme. Inverting the rendered page and rotating
+ * the hue back is what turns it dark while keeping colours recognizable;
+ * artwork is inverted a second time below so it is not inverted at all.
+ *
+ * The filter applies to the element's shadow too, which would invert into a
+ * pale halo, so the dark page is separated from its backdrop by contrast alone.
+ */
+.showdocx-app[data-page-theme="dark"] {
+  --showdocx-page-filter: invert(1) hue-rotate(180deg);
+  --showdocx-page-shadow: none;
 }
 
 .showdocx-main-area {
   display: flex;
+  flex: 1;
   min-height: 0;
-  height: 100%;
   width: 100%;
   overflow: hidden;
   position: relative;
@@ -302,6 +333,7 @@ ins, .docx-ins {
 .showdocx-toolbar {
   z-index: 10;
   display: flex;
+  flex: none;
   min-height: 42px;
   align-items: center;
   gap: 8px;
@@ -407,6 +439,7 @@ ins, .docx-ins {
 
 .warnings-panel {
   z-index: 9;
+  flex: none;
   max-height: 150px;
   overflow: auto;
   padding: 10px 16px;
@@ -426,6 +459,11 @@ ins, .docx-ins {
 
 .showdocx-viewport {
   position: relative;
+  /* A flex item sizes to its content unless told otherwise, which left the
+     viewport as wide as one page and the document stranded against the left
+     edge of the editor. min-width lets it shrink below that content width. */
+  flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -442,9 +480,10 @@ ins, .docx-ins {
 .zoom-surface {
   --showdocx-zoom: 1;
   min-height: 100%;
-  transform: scale(var(--showdocx-zoom));
-  transform-origin: top center;
-  transition: transform 140ms ease-out;
+  /* zoom, not transform: a transform leaves the layout box unscaled, so a page
+     wider than its container overflowed to a negative offset that no scrolling
+     could reach. */
+  zoom: var(--showdocx-zoom);
 }
 
 .render-container {
@@ -455,23 +494,30 @@ ins, .docx-ins {
   padding-bottom: 32px;
 }
 
-.visual-container .docx-wrapper {
+.visual-container .showdocx-visual-wrapper {
   min-height: 100%;
   padding: 28px 20px;
   background: transparent;
 }
 
-.visual-container .docx-wrapper > section.docx {
+.visual-container .showdocx-visual-wrapper > section.showdocx-visual {
   margin: 0 auto 24px;
-  background: white;
-  box-shadow: 0 3px 14px var(--showdocx-shadow);
+  background: var(--showdocx-page-bg);
+  box-shadow: var(--showdocx-page-shadow);
+  filter: var(--showdocx-page-filter);
 }
 
-.visual-container .docx-wrapper .toc-1,
-.visual-container .docx-wrapper .toc-2,
-.visual-container .docx-wrapper .toc-3,
-.visual-container .docx-wrapper .toc-4,
-.visual-container .docx-wrapper .toc-5 {
+.showdocx-app[data-page-theme="dark"] .visual-container img,
+.showdocx-app[data-page-theme="dark"] .visual-container svg,
+.showdocx-app[data-page-theme="dark"] .visual-container video {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-1,
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-2,
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-3,
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-4,
+.visual-container .showdocx-visual-wrapper .showdocx-visual_toc-5 {
   white-space: nowrap !important;
 }
 
@@ -706,7 +752,6 @@ ins, .docx-ins {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .zoom-surface,
   .progress-bar {
     transition: none;
   }
@@ -719,7 +764,7 @@ ins, .docx-ins {
 @media (forced-colors: active) {
   .showdocx-toolbar,
   .toolbar-group,
-  .visual-container .docx-wrapper > section.docx,
+  .visual-container .showdocx-visual-wrapper > section.showdocx-visual,
   .showdocx-text th,
   .showdocx-text td {
     border: 1px solid CanvasText;
@@ -738,6 +783,19 @@ ins, .docx-ins {
 }
 
 @media print {
+  /* A page theme is for reading on screen. Print what the document says. */
+  .showdocx-app {
+    --showdocx-page-bg: #ffffff;
+    --showdocx-page-filter: none;
+    --showdocx-page-shadow: none;
+  }
+
+  .visual-container img,
+  .visual-container svg,
+  .visual-container video {
+    filter: none !important;
+  }
+
   /* Hide the toolbar, print/export buttons, search bar, sidebars, warnings panel, loading, and error states */
   .showdocx-toolbar,
   #warnings-panel,
@@ -771,13 +829,13 @@ ins, .docx-ins {
   }
   
   /* Reset page shadow and background for docx pages */
-  .visual-container .docx-wrapper {
+  .visual-container .showdocx-visual-wrapper {
     padding: 0 !important;
     margin: 0 !important;
     background: transparent !important;
   }
   
-  .visual-container .docx-wrapper > section.docx {
+  .visual-container .showdocx-visual-wrapper > section.showdocx-visual {
     box-shadow: none !important;
     margin: 0 !important;
     page-break-after: always;

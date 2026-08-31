@@ -1,7 +1,7 @@
 {
   "name": "show-docx",
   "displayName": "ShowDocx",
-  "description": "A high-fidelity, theme-aware DOCX viewer for Visual Studio Code.",
+  "description": "A high-fidelity, theme-aware viewer for Word documents (.docx, .docm, .dotx, .dotm) in Visual Studio Code.",
   "version": "1.1.1",
   "publisher": "showdocx",
   "license": "MIT",
@@ -40,17 +40,18 @@
     "document"
   ],
   "activationEvents": [
-    "onCustomEditor:showDocx.docxViewer"
+    "onCustomEditor:showDocx.docxViewer",
+    "onLanguageModelTool:showdocx_readDocx"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "customEditors": [
       {
         "viewType": "showDocx.docxViewer",
-        "displayName": "DOCX Viewer",
+        "displayName": "Word Document Viewer",
         "selector": [
           {
-            "filenamePattern": "*.docx"
+            "filenamePattern": "*.{docx,docm,dotx,dotm}"
           }
         ],
         "priority": "default"
@@ -61,6 +62,12 @@
         "command": "showDocx.openWith",
         "title": "Open with ShowDocx",
         "category": "ShowDocx"
+      },
+      {
+        "command": "showDocx.compareWithHead",
+        "title": "Compare with HEAD",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer || resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm"
       },
       {
         "command": "showDocx.exportHtml",
@@ -77,6 +84,18 @@
       {
         "command": "showDocx.exportPdf",
         "title": "Print to PDF (via Browser)",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.copyAsMarkdown",
+        "title": "Copy as Markdown",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.copyAsText",
+        "title": "Copy as Plain Text",
         "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
@@ -105,8 +124,26 @@
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
       {
+        "command": "showDocx.fitToWidth",
+        "title": "Fit Page to Width",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.fitToPage",
+        "title": "Fit Whole Page",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
         "command": "showDocx.toggleMode",
         "title": "Toggle Visual/Text Mode",
+        "category": "ShowDocx",
+        "enablement": "activeCustomEditorId == showDocx.docxViewer"
+      },
+      {
+        "command": "showDocx.cyclePageTheme",
+        "title": "Change Page Theme",
         "category": "ShowDocx",
         "enablement": "activeCustomEditorId == showDocx.docxViewer"
       },
@@ -120,8 +157,20 @@
       "explorer/context": [
         {
           "command": "showDocx.openWith",
-          "when": "resourceExtname == .docx",
+          "when": "resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm",
           "group": "navigation@20"
+        },
+        {
+          "command": "showDocx.compareWithHead",
+          "when": "resourceExtname == .docx || resourceExtname == .docm || resourceExtname == .dotx || resourceExtname == .dotm",
+          "group": "navigation@21"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "showDocx.compareWithHead",
+          "when": "activeCustomEditorId == showDocx.docxViewer",
+          "group": "navigation"
         }
       ]
     },
@@ -180,6 +229,21 @@
           "maximum": 400,
           "description": "Default zoom level in percent."
         },
+        "showDocx.defaultPageTheme": {
+          "type": "string",
+          "default": "paper",
+          "enum": [
+            "paper",
+            "sepia",
+            "dark"
+          ],
+          "enumDescriptions": [
+            "White, the way Word shows the page.",
+            "A warm, low-contrast ground for long reading.",
+            "Invert the page so it suits a dark editor. Images are left as they are."
+          ],
+          "description": "Background of the page in Visual mode. Text mode always follows the editor theme."
+        },
         "showDocx.maxFileSizeMb": {
           "type": "number",
           "default": 100,
@@ -193,7 +257,34 @@
           "description": "Automatically reload the preview when the DOCX file changes on disk."
         }
       }
-    }
+    },
+    "languageModelTools": [
+      {
+        "name": "showdocx_readDocx",
+        "displayName": "Read Word document",
+        "toolReferenceName": "docx",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(file-word)",
+        "userDescription": "Read the text of a Word (.docx) document in this workspace.",
+        "modelDescription": "Read the text content of a Word (.docx) document in the current workspace. Use this whenever you need the contents of a .docx file: reading it directly returns a binary ZIP archive, not text. Returns Markdown: headings, lists, tables and links are preserved; embedded images are replaced by a short placeholder. Deletions in tracked changes are not included, and insertions appear as accepted. Only documents inside the open workspace can be read.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Path of the .docx file, either absolute or relative to a workspace folder."
+            },
+            "maxCharacters": {
+              "type": "number",
+              "description": "Maximum number of characters to return. Defaults to 60000. If the document is longer the result is cut at a line boundary and says how much was left out."
+            }
+          },
+          "required": [
+            "filePath"
+          ]
+        }
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run verify && npm run build",

@@ -18,6 +18,7 @@ export default [
       globals: {
         acquireVsCodeApi: 'readonly',
         console: 'readonly',
+        process: 'readonly',
         document: 'readonly',
         window: 'readonly',
         requestAnimationFrame: 'readonly',
@@ -27,6 +28,7 @@ export default [
         Blob: 'readonly',
         URL: 'readonly',
         Buffer: 'readonly',
+        __dirname: 'readonly',
         __filename: 'readonly',
         HTMLElement: 'readonly',
         HTMLButtonElement: 'readonly',
@@ -36,6 +38,8 @@ export default [
         Node: 'readonly',
         Text: 'readonly',
         MessageEvent: 'readonly',
+        WheelEvent: 'readonly',
+        ResizeObserver: 'readonly',
         ArrayBuffer: 'readonly',
         Uint8Array: 'readonly',
       },
@@ -67,6 +71,8 @@ export default [
     languageOptions: {
       globals: {
         process: 'readonly',
+        document: 'readonly',
+        getComputedStyle: 'readonly',
         window: 'readonly',
       },
     },

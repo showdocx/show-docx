@@ -1,14 +1,61 @@
 import * as vscode from 'vscode';
+import { compareWithHead, isComparableDocx, readDocxAtRef } from './diff/compareWithHead';
+import { DIFF_SCHEME, DocxDiffContentProvider } from './diff/diffProvider';
 import { DocxEditorProvider } from './docxEditorProvider';
+import { validateDocxBytes } from './docxLoader';
 import { disposeLog, getLog } from './log';
+import { registerReadDocxTool } from './lm/readDocxTool';
+import { watchFile } from './watchFile';
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = getLog();
   log.info('ShowDocx activated.');
   const provider = DocxEditorProvider.register(context);
 
+  const diffProvider = new DocxDiffContentProvider({
+    readWorkingTree: (uri) => provider.readDocument(uri),
+    readAtRef: async (uri, ref) => validateDocxBytes(
+      await readDocxAtRef(uri, ref),
+      provider.maxFileSize,
+    ),
+    watch: watchFile,
+  });
+
+  /**
+   * The explorer and SCM menus pass the file they were invoked on; the palette
+   * and the editor title bar pass nothing, so the focused document stands in.
+   */
+  const resolveCompareTarget = (uri?: vscode.Uri): vscode.Uri | undefined => {
+    if (isComparableDocx(uri)) {
+      return uri;
+    }
+    const active = provider.getActiveDocumentUri();
+    if (isComparableDocx(active)) {
+      return active;
+    }
+    const editorUri = vscode.window.activeTextEditor?.document.uri;
+    return isComparableDocx(editorUri) ? editorUri : undefined;
+  };
+
+  // Undefined on a VS Code without the language model tool API, which is the
+  // supported case rather than a failure: engines stays at ^1.85.0.
+  const readDocxTool = registerReadDocxTool({
+    workspaceFolders: () => (vscode.workspace.workspaceFolders ?? [])
+      .filter((folder) => folder.uri.scheme === 'file')
+      .map((folder) => folder.uri.fsPath),
+    read: (uri) => provider.readDocument(uri),
+  });
+  if (readDocxTool) {
+    context.subscriptions.push(readDocxTool);
+  }
+
   context.subscriptions.push(
     log,
+    diffProvider,
+    vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, diffProvider),
+    vscode.commands.registerCommand('showDocx.compareWithHead', async (uri?: vscode.Uri) => {
+      await compareWithHead(resolveCompareTarget(uri), diffProvider);
+    }),
     vscode.commands.registerCommand('showDocx.showLog', () => {
       log.show();
     }),
@@ -29,6 +76,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('showDocx.exportPdf', () => {
       provider.sendToActivePanel('requestExportPdf');
     }),
+    vscode.commands.registerCommand('showDocx.copyAsMarkdown', () => {
+      provider.sendToActivePanel('requestCopyMarkdown');
+    }),
+    vscode.commands.registerCommand('showDocx.copyAsText', () => {
+      provider.sendToActivePanel('requestCopyText');
+    }),
     vscode.commands.registerCommand('showDocx.search', () => {
       provider.sendToActivePanel('search');
     }),
@@ -43,6 +96,15 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('showDocx.toggleMode', () => {
       provider.sendToActivePanel('toggleMode');
+    }),
+    vscode.commands.registerCommand('showDocx.cyclePageTheme', () => {
+      provider.sendToActivePanel('cyclePageTheme');
+    }),
+    vscode.commands.registerCommand('showDocx.fitToWidth', () => {
+      provider.sendToActivePanel('fitWidth');
+    }),
+    vscode.commands.registerCommand('showDocx.fitToPage', () => {
+      provider.sendToActivePanel('fitPage');
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('showDocx')) {

@@ -5,21 +5,24 @@ import {
   DocxFileTooLargeError,
   InvalidDocxError,
 } from './errors';
+import { DocumentStateStore } from './documentState';
 import { loadValidatedDocx } from './docxLoader';
 import { getLog } from './log';
+import { convertDocxToPlainText, convertDocxToText } from './text/docxText';
+import { stripDocumentExtension } from '../shared/documentExtensions';
 import { clamp } from '../shared/format';
 import { DEFAULT_CHUNK_SIZE, splitIntoChunks } from './utils/chunks';
 import { getNonce } from './utils/getNonce';
 import { getWebviewUri } from './utils/getWebviewUri';
+import { watchFile } from './watchFile';
 
 type RenderMode = 'visual' | 'text';
-
-/** Collapses the burst of file events one external save produces into one reload. */
-const WATCH_DEBOUNCE_MS = 250;
+type PageTheme = 'paper' | 'sepia' | 'dark';
 
 interface ViewerSettings {
   defaultMode: RenderMode;
   defaultZoom: number;
+  defaultPageTheme: PageTheme;
   maxFileSizeMb: number;
   autoReload: boolean;
 }
@@ -30,6 +33,8 @@ interface WebviewMessage {
   markdown?: string;
   href?: string;
   message?: string;
+  /** Where the reader is in the document. Validated before it is stored. */
+  state?: unknown;
   /** Raw diagnostic text for the log channel. Never shown to the user. */
   detail?: string;
 }
@@ -48,6 +53,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private readonly panels = new Set<PanelEntry>();
   private activeEntry: PanelEntry | undefined;
   private transferSequence = 0;
+  private readonly documentState: DocumentStateStore;
 
   public static register(context: vscode.ExtensionContext): DocxEditorProvider {
     const provider = new DocxEditorProvider(context);
@@ -67,7 +73,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     return provider;
   }
 
-  public constructor(private readonly context: vscode.ExtensionContext) { }
+  public constructor(private readonly context: vscode.ExtensionContext) {
+    this.documentState = new DocumentStateStore(context.workspaceState);
+  }
 
   public async openCustomDocument(
     uri: vscode.Uri,
@@ -78,7 +86,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const name = path.basename(uri.path);
     let data: Uint8Array;
     try {
-      data = await this.loadDocument(uri);
+      data = await this.readDocument(uri);
     } catch (error: unknown) {
       getLog().error(`Opening ${name} failed.`, error);
       throw error;
@@ -150,6 +158,11 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     panel.webview.html = this.getHtmlForWebview(panel.webview);
   }
 
+  /** The document in the focused viewer, for commands invoked without a target. */
+  public getActiveDocumentUri(): vscode.Uri | undefined {
+    return this.getActiveEntry()?.document.uri;
+  }
+
   public sendToActivePanel(type: string): boolean {
     const entry = this.getActiveEntry();
     if (!entry) {
@@ -209,14 +222,21 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         }
         break;
       case 'exportMarkdown':
-        if (typeof message.markdown === 'string') {
-          await this.saveMarkdown(entry.document.uri, message.markdown);
-        }
+        await this.saveMarkdown(entry.document);
+        break;
+      case 'copyMarkdown':
+        await this.copyToClipboard(entry.document, 'Markdown');
+        break;
+      case 'copyText':
+        await this.copyToClipboard(entry.document, 'plain text');
         break;
       case 'exportPdf':
         if (typeof message.html === 'string') {
           await this.exportPdf(entry.document.uri, message.html);
         }
+        break;
+      case 'persistState':
+        await this.documentState.set(entry.document.uri.toString(), message.state);
         break;
       case 'openExternal':
         if (typeof message.href === 'string') {
@@ -254,6 +274,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       fileName: path.basename(entry.document.uri.path),
       fileSize: data.byteLength,
       settings: this.getSettings(),
+      // Travels with the document, so restoring the reading position costs no
+      // extra round trip.
+      savedState: this.documentState.get(entry.document.uri.toString()),
       reload,
     };
 
@@ -319,7 +342,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
   private async saveHtml(sourceUri: vscode.Uri, html: string): Promise<void> {
     const defaultUri = sourceUri.with({
-      path: sourceUri.path.replace(/\.docx$/i, '') + '.html',
+      path: stripDocumentExtension(sourceUri.path) + '.html',
     });
     const target = await vscode.window.showSaveDialog({
       defaultUri,
@@ -344,9 +367,11 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     });
   }
 
-  private async saveMarkdown(sourceUri: vscode.Uri, markdown: string): Promise<void> {
+  private async saveMarkdown(document: DocxDocument): Promise<void> {
+    const sourceUri = document.uri;
+    const markdown = await this.toMarkdown(document);
     const defaultUri = sourceUri.with({
-      path: sourceUri.path.replace(/\.docx$/i, '') + '.md',
+      path: stripDocumentExtension(sourceUri.path) + '.md',
     });
     const target = await vscode.window.showSaveDialog({
       defaultUri,
@@ -371,9 +396,65 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     });
   }
 
+  /**
+   * Most of the time the content is wanted in an issue, a message or a code
+   * comment rather than in a file, which through the export dialog is a
+   * seven-step round trip through a file the user then deletes.
+   */
+  private async copyToClipboard(
+    document: DocxDocument,
+    format: 'Markdown' | 'plain text',
+  ): Promise<void> {
+    const name = path.basename(document.uri.path);
+    try {
+      const text = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Window, title: `ShowDocx: reading ${name}...` },
+        () => (format === 'Markdown'
+          ? this.toMarkdown(document)
+          : this.toPlainText(document)),
+      );
+      if (text === '') {
+        void vscode.window.showWarningMessage(`ShowDocx: ${name} has no text to copy.`);
+        return;
+      }
+      await vscode.env.clipboard.writeText(text);
+      void vscode.window.setStatusBarMessage(`ShowDocx copied ${name} as ${format}.`, 4000);
+    } catch (error: unknown) {
+      getLog().error(`Copying ${name} as ${format} failed.`, error);
+      void this.notify('error', `${name} could not be converted to ${format}.`);
+    }
+  }
+
+  /**
+   * The Markdown every caller gets: the export, the clipboard and the language
+   * model tool all read the same converter, so one document is one answer.
+   * Ordered lists are numbered for real here, unlike in a diff, because the
+   * numbers are part of what a reader is copying.
+   */
+  private async toMarkdown(document: DocxDocument): Promise<string> {
+    const { text, messages } = await convertDocxToText(document.data, {
+      stableOrderedNumbers: false,
+    });
+    this.logConversion(document, messages);
+    return text;
+  }
+
+  private async toPlainText(document: DocxDocument): Promise<string> {
+    const { text, messages } = await convertDocxToPlainText(document.data);
+    this.logConversion(document, messages);
+    return text;
+  }
+
+  private logConversion(document: DocxDocument, messages: readonly string[]): void {
+    const name = path.basename(document.uri.path);
+    for (const message of messages) {
+      getLog().warn(`${name}: ${message}`);
+    }
+  }
+
   private async exportPdf(sourceUri: vscode.Uri, html: string): Promise<void> {
     const defaultUri = sourceUri.with({
-      path: sourceUri.path.replace(/\.docx$/i, '') + '.html',
+      path: stripDocumentExtension(sourceUri.path) + '.html',
     });
 
     const target = await vscode.window.showSaveDialog({
@@ -433,55 +514,20 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
   private createDocumentHost(enableWatch: boolean): DocxDocumentHost {
     return {
-      readFile: (uri) => this.loadDocument(uri),
-      watch: (uri, onChange) => {
-        if (!enableWatch) {
-          return { dispose: () => undefined };
-        }
-
-        const fileName = path.basename(uri.path);
-        const pattern = uri.scheme === 'file'
-          ? new vscode.RelativePattern(path.dirname(uri.fsPath), fileName)
-          : `**/${fileName}`;
-        const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-        const matches = (candidate: vscode.Uri) => candidate.toString() === uri.toString();
-
-        // Word and LibreOffice write a document several times during a single
-        // save — temp file, rename, final write. Without a delay each of those
-        // events is a full transfer and re-render, and a partially written file
-        // can even pass the signature check and flash a corruption error.
-        let pending: ReturnType<typeof setTimeout> | undefined;
-        const schedule = () => {
-          if (pending) {
-            clearTimeout(pending);
-          }
-          pending = setTimeout(() => {
-            pending = undefined;
-            onChange();
-          }, WATCH_DEBOUNCE_MS);
-        };
-
-        const subscriptions = [
-          watcher.onDidChange((candidate) => matches(candidate) && schedule()),
-          watcher.onDidCreate((candidate) => matches(candidate) && schedule()),
-          watcher.onDidDelete((candidate) => matches(candidate) && schedule()),
-          {
-            dispose: () => {
-              if (pending) {
-                clearTimeout(pending);
-                pending = undefined;
-              }
-            },
-          },
-        ];
-        return vscode.Disposable.from(watcher, ...subscriptions);
-      },
+      readFile: (uri) => this.readDocument(uri),
+      watch: (uri, onChange) => (enableWatch
+        ? watchFile(uri, onChange)
+        : { dispose: () => undefined }),
     };
   }
 
-  private loadDocument(uri: vscode.Uri): Promise<Uint8Array> {
-    const maxSize = this.getSettings().maxFileSizeMb * 1024 * 1024;
-    return loadValidatedDocx(uri, maxSize, vscode.workspace.fs);
+  /** Reads a DOCX under the viewer's own size and signature checks. */
+  public readDocument(uri: vscode.Uri): Promise<Uint8Array> {
+    return loadValidatedDocx(uri, this.maxFileSize, vscode.workspace.fs);
+  }
+
+  public get maxFileSize(): number {
+    return this.getSettings().maxFileSizeMb * 1024 * 1024;
   }
 
   private getSettings(): ViewerSettings {
@@ -489,6 +535,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     return {
       defaultMode: configuration.get<RenderMode>('defaultMode', 'visual'),
       defaultZoom: clamp(configuration.get<number>('defaultZoom', 100), 25, 400),
+      defaultPageTheme: configuration.get<PageTheme>('defaultPageTheme', 'paper'),
       maxFileSizeMb: clamp(configuration.get<number>('maxFileSizeMb', 100), 1, 500),
       autoReload: configuration.get<boolean>('autoReload', true),
     };
@@ -561,9 +608,21 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         <button id="export-pdf-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
           <span class="codicon codicon-file-pdf"></span><span>PDF</span>
         </button>
+        <button id="copy-md-button" class="toolbar-button icon-button" type="button" title="Copy the document to the clipboard as Markdown" aria-label="Copy as Markdown">
+          <span class="codicon codicon-copy"></span>
+        </button>
+        <button id="copy-text-button" class="toolbar-button icon-button" type="button" title="Copy the document to the clipboard as plain text" aria-label="Copy as plain text">
+          <span class="codicon codicon-symbol-text"></span>
+        </button>
       </div>
       <button id="print-button" class="toolbar-button" type="button" title="Save printable HTML and open your browser's print dialog">
         <span class="codicon codicon-printer"></span><span>Print</span>
+      </button>
+      <button id="page-theme-button" class="toolbar-button icon-button" type="button" title="Page theme" aria-label="Page theme">
+        <span class="codicon codicon-color-mode"></span>
+      </button>
+      <button id="fit-button" class="toolbar-button icon-button" type="button" title="Fit the page to the panel" aria-label="Fit the page to the panel">
+        <span class="codicon codicon-screen-full"></span>
       </button>
       <div class="toolbar-group zoom-controls" aria-label="Zoom controls">
         <button id="zoom-out" class="toolbar-button icon-button" type="button" title="Zoom out" aria-label="Zoom out">

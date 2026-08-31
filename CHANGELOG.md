@@ -2,6 +2,42 @@
 
 All notable changes to ShowDocx are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Compare a DOCX with its committed revision in the diff editor.** Right-click a `.docx` and choose **Compare with HEAD**, or run it from the editor title bar or the Command Palette. Git reports a DOCX as `Binary files differ` and the diff editor cannot open one, so both revisions are converted to readable text and served to the normal diff editor through a virtual read-only `showdocx-diff` document. ([#35](https://github.com/showdocx/show-docx/issues/35))
+
+  The text is normalized for diffing: one line per paragraph and per table row, ordered items all written `1.` so inserting one does not renumber the rest, and embedded images reduced to a digest of their bytes. Word rewrites the whole package on every save, so without this a one-word edit reads as a full rewrite; with it, it is one changed line.
+
+  This is the first feature that needs mammoth in the extension host, which grows `dist/extension.js` from 19 KB to 577 KB. Lazy-loading it is tracked in #30.
+
+- **AI agents in your editor can read `.docx` files.** ShowDocx registers a `showdocx_readDocx` language model tool that returns a document as Markdown, so Copilot agent mode — or anything using the same API — reads `spec.docx` instead of giving up on a ZIP archive. Reference it in a prompt as `#docx`. ([#36](https://github.com/showdocx/show-docx/issues/36))
+
+  ShowDocx calls no model and makes no outbound request: the user's own agent asks this extension for text. Only `.docx` files inside the open workspace can be read, because a model's arguments can be steered by whatever it has read.
+
+  The API needs VS Code 1.95, and `engines` stays at `^1.85.0`. The API is detected at runtime and the tool is simply not registered where it is absent.
+
+- **Page themes for Visual mode: paper, sepia and dark.** The page background was hardcoded white, which is a poor answer for the majority of users who run a dark editor. Cycle it from the toolbar or set `showDocx.defaultPageTheme`. Dark inverts the rendered page and rotates the hue back, so colours stay recognizable; images, SVG and video are inverted a second time and keep their own colours. Printing and the PDF export are unaffected — they print what the document says. ([#37](https://github.com/showdocx/show-docx/issues/37))
+- **Reading position, mode, zoom and page theme are remembered per document, across sessions.** They were kept only while the editor stayed open, which is fine for a short document and useless for the long specification this viewer is for. The 100 most recently opened documents are remembered. ([#38](https://github.com/showdocx/show-docx/issues/38))
+
+- **Copy the document to the clipboard as Markdown or plain text**, from the toolbar or the Command Palette. Getting the content into an issue or a message was an export, a save dialog, a location, opening the file, selecting all, copying, and deleting the file. ([#39](https://github.com/showdocx/show-docx/issues/39))
+- **`.docm`, `.dotx` and `.dotm` open alongside `.docx`.** All four are the same OOXML package, and corporate repositories are full of templates and forms. A macro is never executed: ShowDocx reads the document parts and never opens `vbaProject.bin`. ([#40](https://github.com/showdocx/show-docx/issues/40))
+- **Fit to width and fit to page**, plus `Ctrl/Cmd` + wheel for continuous zoom. A fit is a mode rather than a one-shot action: resizing the panel refits the page instead of leaving it at the width the panel used to be. ([#41](https://github.com/showdocx/show-docx/issues/41))
+
+### Changed
+
+- Markdown now comes from one converter, whichever way it is asked for — exported, copied, or read by an agent. The export used mammoth's Markdown writer, which flattens a table into one paragraph per cell and escapes ordinary punctuation, so the same document had two different Markdown answers. Tables keep their rows now, and a hyphen stays a hyphen. Embedded images become a short placeholder rather than inlined base64.
+
+### Fixed
+
+- The viewer fills the height of the editor. The app shell declared three grid rows for four children, of which only two are ever in flow — the warnings panel is hidden until there is a warning, and the search bar is positioned outside the flow — so the document area took its content height and left the rest of the editor empty. A short document in Text mode showed this as a half-empty window with a sidebar that stopped partway down.
+- The document is centred in the editor again. The viewport is a flex item and had no `flex` of its own, so it sized itself to a single page: on any window wider than one page the document sat against the left edge with the rest of the editor empty.
+- Zooming past the width of the editor no longer puts the left margin of the page out of reach. Zoom scaled the page with a transform, which paints at a new size without changing the layout box, so the page overflowed equally in both directions and scrolling could not reach what had gone off to the left. It scales the layout box now, so every zoom level stays fully reachable.
+- Reloading a document after it changes on disk no longer resets the reader's mode and zoom to the configured defaults. Word rewrites a file several times during one save, so this could throw away the view mid-read.
+- Export as PDF now prints the page layout it renders on screen. It built the printable file from the semantic text view, so page breaks, headers, footers and page geometry were all discarded by the one command whose whole purpose is reproducing them. Starting the export from Text mode renders the page layout for it, and a document Visual mode cannot render still falls back to the text view. ([#34](https://github.com/showdocx/show-docx/issues/34))
+- Visual mode uses the viewer's own page styling again. Its rules were written for the `docx` class `docx-preview` uses by default, but the renderer is configured with `showdocx-visual`, so none of them ever matched — including the print rule that breaks a page between sections.
+
 ## [1.1.1] - 2026-08-31
 
 ### Fixed
