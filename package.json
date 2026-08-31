@@ -5,6 +5,9 @@
   "version": "1.2.0",
   "publisher": "showdocx",
   "license": "MIT",
+  "author": {
+    "name": "Aşır Can Aslan"
+  },
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#1e1e1e",
@@ -377,6 +380,7 @@
     "test": "npm run test:unit && npm run test:integration",
     "verify": "npm run lint && npm run check-types && npm run test:unit && npm run test:integration && npm run test:webview",
     "generate:fixtures": "node ./scripts/generate-fixtures.mjs",
+    "generate:notices": "node ./scripts/generate-notices.mjs",
     "verify:package-files": "node ./scripts/verify-package-files.mjs",
     "package": "npm run build && npm run verify:package-files && vsce package --no-dependencies",
     "postinstall": "patch-package"

@@ -229,6 +229,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Security issues should be reported according to [SECURITY.md](SECURITY.md).
 
+## Third-party licences
+
+ShowDocx bundles `docx-preview`, `mammoth`, `JSZip`, `DOMPurify` and the VS Code
+codicons, along with their dependencies. All are under permissive licences, and
+each notice is reproduced in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md),
+generated from what the bundles actually contain.
+
+The codicons are by Microsoft under CC-BY-4.0.
+
 ## License
 
 [MIT](LICENSE)

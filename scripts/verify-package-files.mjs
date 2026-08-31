@@ -15,6 +15,7 @@ const allowedFiles = new Set([
   'LICENSE',
   'README.md',
   'SECURITY.md',
+  'THIRD-PARTY-NOTICES.md',
   'package.json',
 ]);
 const allowedPrefixes = ['dist/', 'media/'];
@@ -27,7 +28,13 @@ if (unexpected.length > 0) {
   throw new Error(`Unexpected VSIX files:\n${unexpected.join('\n')}`);
 }
 
-for (const required of ['dist/extension.js', 'dist/webview/main.js', 'dist/webview/main.css']) {
+for (const required of [
+  'dist/extension.js',
+  'dist/webview/main.js',
+  'dist/webview/main.css',
+  'LICENSE',
+  'THIRD-PARTY-NOTICES.md',
+]) {
   if (!files.includes(required)) {
     throw new Error(`Required VSIX file is missing: ${required}`);
   }
