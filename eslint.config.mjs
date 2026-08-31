@@ -37,6 +37,7 @@ export default [
         NodeFilter: 'readonly',
         Node: 'readonly',
         Text: 'readonly',
+        CSS: 'readonly',
         MessageEvent: 'readonly',
         WheelEvent: 'readonly',
         ResizeObserver: 'readonly',

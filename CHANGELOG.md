@@ -4,6 +4,11 @@ All notable changes to ShowDocx are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- The comments sidebar reads the document's own comments and tracked changes instead of walking the rendered page. It was empty in Text mode, which the README listed as a limitation but which reads as a bug — reviewing comments is often the reason a document is opened at all. Cards now carry the real author and date, say when a comment is resolved or is a reply, and show the text a deletion removed, which Text mode drops entirely. Following a card to its place still needs Visual mode, which is the only mode that renders anchors. ([#45](https://github.com/showdocx/show-docx/issues/45))
+- The outline is built from the heading styles the document declares rather than from CSS class names containing "heading" or "title". The old guess both invented entries — a caption or a table-of-contents style counted — and missed real headings in documents whose styles are not named in English. Levels come from `w:outlineLvl`, from the canonical style name Word stores in English, or from the style a heading is based on. ([#46](https://github.com/showdocx/show-docx/issues/46))
+
 ### Added
 
 - **A document properties sidebar** — title, author, who last modified it, created and modified dates, revision, and what produced the file. A property the document does not state is left out rather than shown blank. ([#49](https://github.com/showdocx/show-docx/issues/49))

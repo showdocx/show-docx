@@ -25,8 +25,8 @@
 - **Document properties** sidebar: title, author, who last modified it, dates and revision — the questions a contract or specification raises constantly, which in Word take several clicks to answer.
 - **Status bar counts** while a document is open: pages, words and an estimated reading time.
 - **Extract images** writes every picture in a document to a folder, so a diagram can go straight into a README.
-- **Document outline (TOC)** sidebar to quickly inspect headings and jump to sections.
-- **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions. Available in Visual mode; `mammoth` does not carry annotations into Text mode.
+- **Document outline (TOC)** sidebar built from the heading styles the document declares, so it is right for documents whose styles are not named in English and does not invent entries from styles that merely sound like headings.
+- **Comments and tracked changes** sidebar listing reviewer notes, additions, and deletions with their authors and dates. Read from the document's own parts, so the list is the same in Visual and Text mode.
 - **Copy to the clipboard** as Markdown or plain text, in one click. Most of the time the content is wanted in an issue, a message or a code comment rather than in a file.
 - **Fit to width and fit to page**, held against the panel size, plus `Ctrl/Cmd` + wheel for continuous zoom.
 - **Export formats**: sanitized semantic HTML, Markdown (`.md`), or printable HTML that opens your browser's print dialog for **Save as PDF**. The printable file carries the Visual-mode page layout — page breaks, headers, footers, tables and embedded images.
@@ -165,8 +165,8 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 
 - `.doc` binary files are not supported. No reliable pure-JavaScript reader exists for the legacy format, and half-working output is worse than none.
 - Markdown output — exported, copied, or read by an agent — replaces an embedded image with a short placeholder rather than inlining megabytes of base64.
-- Text mode shows tracked changes as accepted: `mammoth` drops deletions and inlines insertions. The viewer says so in its rendering notes; use Visual mode to see the markup.
-- The comments sidebar reads annotations from the Visual-mode render, so it is empty in Text mode.
+- Text mode shows tracked changes as accepted: `mammoth` drops deletions and inlines insertions. The viewer says so in its rendering notes; the comments sidebar lists what was removed, and Visual mode shows the markup in place.
+- A comment can be followed to its place in the document in Visual mode only. Text mode renders no anchors, so its cards are a list rather than links.
 - Search matches at most 2000 results per query, shown as `2000+`. Workspace search shows at most 300 matches, and at most 20 per document.
 - Table of contents, bookmarks, advanced Word fields, and some hyperlinks are limited by the open-source rendering engines.
 - Visual mode prioritizes page fidelity, but highly complex Word layouts may differ from Microsoft Word.

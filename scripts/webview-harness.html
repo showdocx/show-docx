@@ -120,7 +120,8 @@
           return;
         }
 
-        // The host reads these out of the package and sends them separately.
+        // Stands in for what the host reads out of the package. The parsing
+        // itself is covered by unit tests against the real fixtures.
         const properties = {
           title: 'ShowDocx sample document',
           creator: 'ShowDocx',
@@ -128,7 +129,31 @@
           created: '2026-01-02T03:04:05Z',
           revision: '7'
         };
-        setTimeout(() => dispatch({ type: 'documentProperties', properties }), 0);
+        const structure = {
+          headingStyles: [
+            { styleId: 'Title', name: 'Title', level: 1 },
+            { styleId: 'Heading1', name: 'Heading 1', level: 1 },
+            { styleId: 'Heading2', name: 'Heading 2', level: 2 },
+            { styleId: 'Heading3', name: 'Heading 3', level: 3 }
+          ],
+          comments: [],
+          commentOrder: [],
+          revisions: []
+        };
+        if (fixture === 'with-comments.docx') {
+          structure.comments = [{
+            id: '0',
+            author: 'Alice Reviewer',
+            date: '2026-01-01T00:00:00.000Z',
+            text: 'Please clarify this sentence.'
+          }];
+          structure.commentOrder = ['0'];
+          structure.revisions = [
+            { type: 'insertion', author: 'Alice Reviewer', text: 'an inserted phrase' },
+            { type: 'deletion', author: 'Alice Reviewer', text: 'a deleted phrase' }
+          ];
+        }
+        setTimeout(() => dispatch({ type: 'documentDetails', properties, structure }), 0);
 
         const payload = { type: 'document', ...meta, data: encodeBase64(bytes) };
         // Lets a test replay the message the host sends when the file changes

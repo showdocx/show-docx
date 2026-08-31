@@ -185,6 +185,63 @@ test('renders repeatedly from one buffer', async ({ page }) => {
   await expect(page.locator('#error-state')).toBeHidden();
 });
 
+test('keeps the comments panel in Text mode, where the render has none', async ({ page }) => {
+  // The panel used to be built by walking the rendered page, so switching to
+  // Text mode emptied it — and reviewing comments is the reason the document
+  // was opened. It reads what the document records now, so the mode is
+  // irrelevant to what is listed.
+  await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx&mode=text');
+  await expect(page.locator('#text-container')).toContainText('Reviewed Document');
+
+  await page.locator('#comments-toggle').click();
+  await expect(page.locator('#comments-sidebar')).toBeVisible();
+
+  await expect(page.locator('#comments-list .comment-card')).toHaveCount(3);
+  await expect(page.locator('#comments-list')).toContainText('Alice Reviewer');
+  await expect(page.locator('#comments-list')).toContainText('Please clarify this sentence.');
+  // Including the deleted text, which mammoth drops from the Text view entirely.
+  await expect(page.locator('#comments-list')).toContainText('a deleted phrase');
+});
+
+test('follows a comment to its place in Visual mode only', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+  await page.locator('#comments-toggle').click();
+
+  // Visual mode renders anchors, so a card can be followed.
+  await expect(page.locator('#comments-list .comment-anchored').first()).toBeVisible();
+
+  await page.locator('#mode-text').click();
+  await expect(page.locator('#text-container')).toContainText('Reviewed Document');
+
+  // Text mode renders none, so the cards are listed but not clickable.
+  await expect(page.locator('#comments-list .comment-card')).toHaveCount(3);
+  await expect(page.locator('#comments-list .comment-anchored')).toHaveCount(0);
+});
+
+test('takes heading levels from the styles the document declares', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await page.locator('#outline-toggle').click();
+  await expect(page.locator('#outline-sidebar')).toBeVisible();
+
+  const levels = await page.evaluate(() => [...document.querySelectorAll('#outline-list .outline-item')]
+    .map((item) => ({
+      text: item.textContent.trim(),
+      level: [...item.classList].find((name) => name.startsWith('outline-level-')),
+    })));
+
+  // Title and Heading 1 are both level 1 in this document's styles; 1.1 is
+  // Heading 2. The levels come from the styles, not from the words in a class.
+  expect(levels.find((item) => item.text.includes('Main Document Title'))?.level)
+    .toBe('outline-level-1');
+  expect(levels.find((item) => item.text.includes('Chapter 1'))?.level)
+    .toBe('outline-level-1');
+  expect(levels.find((item) => item.text.includes('1.1 Installation'))?.level)
+    .toBe('outline-level-2');
+});
+
 test('shows what the document says about itself', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
   await expect(page.locator('#visual-container section')).toBeVisible();

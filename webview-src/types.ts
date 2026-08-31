@@ -1,5 +1,41 @@
 export type RenderMode = 'visual' | 'text';
 
+/** The class docx-preview is configured with; every rendered name derives from it. */
+export const VISUAL_CLASS = 'showdocx-visual';
+
+/** A paragraph style the document declares as a heading. */
+export interface HeadingStyle {
+  styleId: string;
+  name: string;
+  level: number;
+}
+
+/** A comment the document records, read from its own comments part. */
+export interface DocumentComment {
+  id: string;
+  author: string;
+  initials?: string;
+  date?: string;
+  text: string;
+  resolved?: boolean;
+  replyTo?: string;
+}
+
+/** A tracked insertion or deletion the document records. */
+export interface DocumentRevision {
+  type: 'insertion' | 'deletion';
+  author: string;
+  date?: string;
+  text: string;
+}
+
+export interface DocumentStructure {
+  headingStyles: HeadingStyle[];
+  comments: DocumentComment[];
+  commentOrder: string[];
+  revisions: DocumentRevision[];
+}
+
 /** The ground the page is drawn on in Visual mode. */
 export type PageTheme = 'paper' | 'sepia' | 'dark';
 
@@ -70,6 +106,7 @@ export interface DocumentMeta {
   savedState?: ViewerState;
   query?: string;
   properties?: DocumentProperties;
+  structure?: DocumentStructure;
 }
 
 export interface IncomingMessage {
@@ -87,7 +124,7 @@ export interface IncomingMessage {
     | 'fitPage'
     | 'toggleMode'
     | 'cyclePageTheme'
-    | 'documentProperties'
+    | 'documentDetails'
     | 'showProperties'
     | 'search'
     | 'requestExportHtml'
@@ -102,6 +139,7 @@ export interface IncomingMessage {
   savedState?: ViewerState;
   query?: string;
   properties?: DocumentProperties;
+  structure?: DocumentStructure;
   reload?: boolean;
   data?: string;
   index?: number;

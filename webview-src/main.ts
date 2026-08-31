@@ -282,8 +282,10 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
     case 'cyclePageTheme':
       applyPageTheme(state.nextPageTheme());
       break;
-    case 'documentProperties':
+    case 'documentDetails':
       properties.update(message.properties);
+      outline.setHeadingStyles(message.structure?.headingStyles ?? []);
+      comments.setStructure(message.structure);
       break;
     case 'showProperties':
       properties.open();
@@ -410,6 +412,8 @@ async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<vo
   toolbar.updateMode(state.value.mode);
   toolbar.updateWarnings([]);
   properties.update(undefined);
+  outline.setHeadingStyles([]);
+  comments.setStructure(undefined);
   zoom.apply();
   showLoading(meta.reload ? 'Document changed. Rendering again...' : 'Rendering document...', 55);
   await renderMode(state.value.mode);

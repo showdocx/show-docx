@@ -1,4 +1,6 @@
 import { getButton, getElement } from './dom';
+import { VISUAL_CLASS } from './types';
+import type { HeadingStyle } from './types';
 
 export interface OutlineItem {
   title: string;
@@ -13,6 +15,7 @@ export class OutlineController {
   private readonly toggleButton = getButton('outline-toggle');
 
   private items: OutlineItem[] = [];
+  private headingStyles: HeadingStyle[] = [];
   private activeContainerGetter: () => HTMLElement;
 
   public constructor(
@@ -27,6 +30,14 @@ export class OutlineController {
 
   public get isOpen(): boolean {
     return !this.sidebar.classList.contains('hidden');
+  }
+
+  /** The heading styles the document declares, read in the extension host. */
+  public setHeadingStyles(styles: HeadingStyle[]): void {
+    this.headingStyles = styles;
+    if (this.isOpen) {
+      this.refresh();
+    }
   }
 
   public open(): void {
@@ -107,61 +118,74 @@ export class OutlineController {
     item.element.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  /**
+   * The headings in the rendered page.
+   *
+   * In Text mode mammoth emits real h1-h6 elements, so those are the answer.
+   * In Visual mode docx-preview names every paragraph after the style it uses,
+   * and the document's own styles say which of those are headings and how deep
+   * — which is why this asks the document rather than matching class names
+   * against the English words "heading" and "title".
+   */
   private extractHeadings(container: HTMLElement): OutlineItem[] {
+    const byClass = this.headingClasses();
+    const selector = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', ...byClass.keys()]
+      .map((name) => (name.startsWith('h') && name.length === 2 ? name : `.${cssEscape(name)}`))
+      .join(', ');
+
     const headings: OutlineItem[] = [];
-
-    // Query both native heading tags and docx-preview styling classes
-    const selector = [
-      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-      '.document-title', '.document-subtitle', '.toc-title',
-      '[class*="Heading"]', '[class*="heading"]', '[class*="Title"]', '[class*="title"]'
-    ].join(', ');
-
-    const elements = Array.from(container.querySelectorAll<HTMLElement>(selector));
-
-    for (const el of elements) {
-      if (el.closest('.hidden') || el.classList.contains('hidden') || el.closest('#warnings-panel')) {
+    for (const element of container.querySelectorAll<HTMLElement>(selector)) {
+      if (element.closest('.hidden') || element.classList.contains('hidden')) {
         continue;
       }
-
-      const text = (el.textContent ?? '').trim();
-      if (!text || text.length > 200) {
+      const title = (element.textContent ?? '').trim();
+      if (title === '' || title.length > 200) {
         continue;
       }
-
-      // Avoid duplicates if child elements matched same heading
-      if (headings.some((h) => h.element === el || h.element.contains(el))) {
+      if (headings.some((heading) => heading.element.contains(element))) {
         continue;
       }
-
-      headings.push({
-        title: text,
-        level: this.detectHeadingLevel(el),
-        element: el,
-      });
+      headings.push({ title, level: this.levelOf(element, byClass), element });
     }
-
     return headings;
   }
 
-  private detectHeadingLevel(element: HTMLElement): number {
+  /** Class name to heading level, from the styles the document declares. */
+  private headingClasses(): Map<string, number> {
+    const classes = new Map<string, number>();
+    for (const style of this.headingStyles) {
+      classes.set(`${VISUAL_CLASS}_${escapeStyleClass(style.styleId)}`, style.level);
+    }
+    return classes;
+  }
+
+  private levelOf(element: HTMLElement, byClass: Map<string, number>): number {
     const tag = element.tagName.toLowerCase();
     if (/^h[1-6]$/.test(tag)) {
       return Number.parseInt(tag[1] ?? '1', 10);
     }
-
-    const className = element.className || '';
-    if (/document-title|title/i.test(className)) {
-      return 1;
+    for (const name of element.classList) {
+      const level = byClass.get(name);
+      if (level !== undefined) {
+        return level;
+      }
     }
-    if (/document-subtitle|subtitle/i.test(className)) {
-      return 2;
-    }
-    const headingMatch = className.match(/heading[_\s-]?([1-6])/i);
-    if (headingMatch && headingMatch[1]) {
-      return Number.parseInt(headingMatch[1], 10);
-    }
-
     return 2;
   }
+}
+
+/**
+ * The class docx-preview builds from a style id. It lowercases and replaces the
+ * same characters, so this has to agree with it exactly.
+ */
+export function escapeStyleClass(styleId: string): string {
+  return styleId.replaceAll(/[ .]+/g, '-').replaceAll(/[&]+/g, 'and').toLowerCase();
+}
+
+/**
+ * Escapes a class name for a selector. A style id comes from the document, so it
+ * can hold characters a selector would otherwise read as syntax.
+ */
+function cssEscape(value: string): string {
+  return CSS.escape(value);
 }

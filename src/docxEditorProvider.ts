@@ -12,6 +12,8 @@ import { DocumentStatusBar } from './statusBar';
 import { convertDocxToPlainText, convertDocxToText } from './text/docxText';
 import { countWords, readDocumentProperties } from './text/documentFacts';
 import type { DocumentProperties, DocumentStats } from './text/documentFacts';
+import { readDocumentStructure } from './text/documentStructure';
+import type { DocumentStructure } from './text/documentStructure';
 import { extractSearchText } from './text/searchText';
 import { stripDocumentExtension } from '../shared/documentExtensions';
 import { clamp } from '../shared/format';
@@ -74,6 +76,7 @@ interface PanelEntry {
 
 interface DocumentFacts {
   readonly properties: DocumentProperties;
+  readonly structure: DocumentStructure;
   readonly words: number;
   /** Pages the viewer has actually rendered, once it reports them. */
   renderedPages?: number;
@@ -270,18 +273,23 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private async readFacts(entry: PanelEntry): Promise<void> {
     try {
       const data = entry.document.data;
-      const [properties, text] = await Promise.all([
+      const [properties, structure, text] = await Promise.all([
         readDocumentProperties(data),
+        readDocumentStructure(data),
         extractSearchText(data),
       ]);
       if (entry.disposed) {
         return;
       }
-      entry.facts = { properties, words: countWords(text) };
+      entry.facts = { properties, structure, words: countWords(text) };
       this.refreshStatusBar();
       // Sent separately rather than with the document: reading the package must
       // not hold up showing it.
-      void entry.panel.webview.postMessage({ type: 'documentProperties', properties });
+      void entry.panel.webview.postMessage({
+        type: 'documentDetails',
+        properties,
+        structure,
+      });
     } catch (error: unknown) {
       getLog().warn(
         `Could not read the properties of ${path.basename(entry.document.uri.path)}.`,
