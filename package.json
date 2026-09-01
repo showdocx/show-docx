@@ -2,7 +2,7 @@
   "name": "show-docx",
   "displayName": "ShowDocx",
   "description": "A high-fidelity, theme-aware viewer for Word documents (.docx, .docm, .dotx, .dotm) in Visual Studio Code.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "showdocx",
   "license": "MIT",
   "author": {
@@ -201,12 +201,6 @@
           "command": "showDocx.compareWithHead",
           "when": "activeCustomEditorId == showDocx.docxViewer",
           "group": "navigation"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "showDocx.searchFor",
-          "when": "false"
         }
       ]
     },
