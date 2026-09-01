@@ -55,6 +55,7 @@ describe('The manifest and the file type list', () => {
       customEditors: Array<{ selector: Array<{ filenamePattern: string }> }>;
       menus: Record<string, Array<{ command: string; when?: string }>>;
       commands: Array<{ command: string; enablement?: string }>;
+      keybindings?: Array<{ command: string }>;
     };
   };
 
@@ -70,6 +71,22 @@ describe('The manifest and the file type list', () => {
     for (const item of manifest.contributes.menus['explorer/context'] ?? []) {
       assert.equal(item.when, RESOURCE_EXTNAME_CLAUSE, item.command);
     }
+  });
+
+  it('declares every command a menu or keybinding points at', () => {
+    // VS Code reports an undeclared reference as an error on the extension's own
+    // Runtime Status page, which is the first thing a curious user opens. It
+    // shipped once, in 1.2.0, because nothing here was checking.
+    const declared = new Set(manifest.contributes.commands.map((command) => command.command));
+    const referenced = [
+      ...Object.entries(manifest.contributes.menus ?? {})
+        .flatMap(([menu, items]) => items.map((item) => [menu, item.command] as const)),
+      ...(manifest.contributes.keybindings ?? [])
+        .map((binding) => ['keybindings', binding.command] as const),
+    ];
+
+    const undeclared = referenced.filter(([, command]) => !declared.has(command));
+    assert.deepEqual(undeclared, [], `undeclared: ${undeclared.map(([m, c]) => `${m} → ${c}`).join(', ')}`);
   });
 
   it('enables the comparison command for every type', () => {

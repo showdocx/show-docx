@@ -2,6 +2,12 @@
 
 All notable changes to ShowDocx are documented in this file.
 
+## [1.2.1] - 2026-09-01
+
+### Fixed
+
+- The extension's own Runtime Status page reported an error: a menu entry pointed at `showDocx.searchFor`, which was never declared in `contributes.commands`. The entry existed to hide that command from the Command Palette, which an undeclared command is never in — so it was both invalid and unnecessary. Nothing behaved differently; the command is registered at runtime and the workspace search calls it as before. A test now checks that every command a menu or keybinding points at is declared, which is what would have caught this before 1.2.0 shipped.
+
 ## [1.2.0] - 2026-09-01
 
 ### Added
