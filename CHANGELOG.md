@@ -46,6 +46,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Less work to open a document.** The document reaches the viewer as bytes rather than base64 — a third less to send, and nothing to encode or decode — and the extension host unzips it once, where it used to unzip it three times to read its properties, structure and word count. Text mode checks for tracked changes alongside the conversion instead of before it, and the in-document search maps its matches in one pass over the page rather than comparing every match with every piece of text on each keystroke. ([#73](https://github.com/showdocx/show-docx/issues/73))
 
+- **The workflows pin every action to a commit.** The release workflow can write to the repository and its releases, and ran actions by tag, which can be moved. Every action is now pinned to a full commit hash, Dependabot keeps the pins current, and checkout no longer leaves the token in the git configuration. ([#77](https://github.com/showdocx/show-docx/issues/77))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed
