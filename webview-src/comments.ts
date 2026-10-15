@@ -155,34 +155,48 @@ export class CommentsController {
       ...structure.comments.filter((comment) => !structure.commentOrder.includes(comment.id)),
     ];
 
-    // docx-preview marks each comment with a reference span but does not record
-    // which comment it is, so the nth reference is the nth anchored comment.
-    const references = container.querySelectorAll<HTMLElement>(
-      `[class*="${VISUAL_CLASS}-comment-ref"]`,
-    );
-    const revisionNodes = container.querySelectorAll<HTMLElement>('ins, del');
-
-    const entries: CommentEntry[] = ordered.map((comment, index) => ({
+    // The patched docx-preview writes each comment's and each revision's id onto
+    // the element it renders, so a card finds its own place. Matching by
+    // position instead sent every later card to the wrong place as soon as one
+    // annotation was rendered differently from how the document lists it.
+    const entries: CommentEntry[] = ordered.map((comment) => ({
       author: comment.author,
       text: comment.text,
       type: 'comment' as const,
       date: comment.date,
       resolved: comment.resolved,
       isReply: comment.replyTo !== undefined,
-      anchor: references[index],
+      anchor: findById(container, `.${VISUAL_CLASS}-comment-ref[data-comment-id]`, 'commentId', comment.id),
     }));
 
-    for (const [index, revision] of structure.revisions.entries()) {
+    for (const revision of structure.revisions) {
       entries.push({
         author: revision.author,
         text: revision.text,
         type: revision.type,
         date: revision.date,
-        anchor: revisionNodes[index],
+        anchor: revision.id === undefined
+          ? undefined
+          : findById(container, revision.type === 'insertion' ? 'ins[data-revision-id]' : 'del[data-revision-id]', 'revisionId', revision.id),
       });
     }
     return entries;
   }
+}
+
+/** The first rendered element carrying this id, if the mode on screen has one. */
+function findById(
+  container: HTMLElement,
+  selector: string,
+  key: 'commentId' | 'revisionId',
+  id: string,
+): HTMLElement | undefined {
+  for (const element of container.querySelectorAll<HTMLElement>(selector)) {
+    if (element.dataset[key] === id) {
+      return element;
+    }
+  }
+  return undefined;
 }
 
 function describeType(entry: CommentEntry): string {

@@ -24,6 +24,8 @@ export interface DocumentComment {
 /** A tracked insertion or deletion the document records. */
 export interface DocumentRevision {
   type: 'insertion' | 'deletion';
+  /** The revision's `w:id`, which docx-preview writes onto its element. */
+  id?: string;
   author: string;
   date?: string;
   text: string;

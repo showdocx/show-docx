@@ -1,5 +1,5 @@
 diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
-index d8e0043..fe1e540 100644
+index d8e0043..81fbbba 100644
 --- a/node_modules/docx-preview/dist/docx-preview.js
 +++ b/node_modules/docx-preview/dist/docx-preview.js
 @@ -1371,7 +1371,12 @@
@@ -16,7 +16,22 @@ index d8e0043..fe1e540 100644
      const mmlTagMap = {
          "oMath": DomType.MmlMath,
          "oMathPara": DomType.MmlMathParagraph,
-@@ -1870,6 +1875,8 @@
+@@ -1752,12 +1757,14 @@
+         parseInserted(node, parentParser) {
+             return {
+                 type: DomType.Inserted,
++                id: globalXmlParser.attr(node, "id"),
+                 children: parentParser(node)?.children ?? []
+             };
+         }
+         parseDeleted(node, parentParser) {
+             return {
+                 type: DomType.Deleted,
++                id: globalXmlParser.attr(node, "id"),
+                 children: parentParser(node)?.children ?? []
+             };
+         }
+@@ -1870,6 +1877,8 @@
              var result = { type: DomType.Run, parent: parent, children: [] };
              for (let c of globalXmlParser.elements(node)) {
                  c = this.checkAlternateContent(c);
@@ -25,7 +40,7 @@ index d8e0043..fe1e540 100644
                  switch (c.localName) {
                      case "t":
                          result.children.push({
-@@ -2122,13 +2129,57 @@
+@@ -2122,13 +2131,57 @@
          parseGraphic(elem) {
              var graphicData = globalXmlParser.element(elem, "graphicData");
              for (let n of globalXmlParser.elements(graphicData)) {
@@ -87,7 +102,15 @@ index d8e0043..fe1e540 100644
          parsePicture(elem) {
              var result = { type: DomType.Image, src: "", cssStyle: {} };
              var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3528,6 +3579,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3517,6 +3570,7 @@ section.${c}>footer { z-index: 1; }
+                 return null;
+             const frg = new DocumentFragment();
+             const commentRefEl = this.createElement("span", { className: `${this.className}-comment-ref` }, ['💬']);
++            commentRefEl.setAttribute("data-comment-id", comment.id);
+             const commentsContainerEl = this.createElement("div", { className: `${this.className}-comment-popover` });
+             this.renderCommentContent(comment, commentsContainerEl);
+             frg.appendChild(this.createComment(`comment #${comment.id} by ${comment.author} on ${comment.date}`));
+@@ -3528,6 +3582,7 @@ section.${c}>footer { z-index: 1; }
              if (!this.options.renderAltChunks)
                  return null;
              var result = this.createElement("iframe");
@@ -95,7 +118,27 @@ index d8e0043..fe1e540 100644
              this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
                  result.srcdoc = x;
              }));
-@@ -3703,7 +3755,9 @@ section.${c}>footer { z-index: 1; }
+@@ -3579,12 +3634,17 @@ section.${c}>footer { z-index: 1; }
+         }
+         renderInserted(elem) {
+             if (this.options.renderChanges)
+-                return this.renderContainer(elem, "ins");
++                return this.markRevision(this.renderContainer(elem, "ins"), elem);
+             return this.renderElements(elem.children);
+         }
++        markRevision(element, elem) {
++            if (elem.id != null)
++                element.setAttribute("data-revision-id", elem.id);
++            return element;
++        }
+         renderDeleted(elem) {
+             if (this.options.renderChanges)
+-                return this.renderContainer(elem, "del");
++                return this.markRevision(this.renderContainer(elem, "del"), elem);
+             return null;
+         }
+         renderSymbol(elem) {
+@@ -3703,7 +3763,9 @@ section.${c}>footer { z-index: 1; }
              return result;
          }
          renderVmlPicture(elem) {
@@ -107,7 +150,7 @@ index d8e0043..fe1e540 100644
          renderVmlElement(elem) {
              var container = this.createSvgElement("svg");
 diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
-index 2691670..b101d1c 100644
+index 2691670..d9d831c 100644
 --- a/node_modules/docx-preview/dist/docx-preview.mjs
 +++ b/node_modules/docx-preview/dist/docx-preview.mjs
 @@ -1367,7 +1367,12 @@ var autos = {
@@ -124,7 +167,22 @@ index 2691670..b101d1c 100644
  const mmlTagMap = {
      "oMath": DomType.MmlMath,
      "oMathPara": DomType.MmlMathParagraph,
-@@ -1866,6 +1871,8 @@ class DocumentParser {
+@@ -1748,12 +1753,14 @@ class DocumentParser {
+     parseInserted(node, parentParser) {
+         return {
+             type: DomType.Inserted,
++            id: globalXmlParser.attr(node, "id"),
+             children: parentParser(node)?.children ?? []
+         };
+     }
+     parseDeleted(node, parentParser) {
+         return {
+             type: DomType.Deleted,
++            id: globalXmlParser.attr(node, "id"),
+             children: parentParser(node)?.children ?? []
+         };
+     }
+@@ -1866,6 +1873,8 @@ class DocumentParser {
          var result = { type: DomType.Run, parent: parent, children: [] };
          for (let c of globalXmlParser.elements(node)) {
              c = this.checkAlternateContent(c);
@@ -133,7 +191,7 @@ index 2691670..b101d1c 100644
              switch (c.localName) {
                  case "t":
                      result.children.push({
-@@ -2116,15 +2123,59 @@ class DocumentParser {
+@@ -2116,15 +2125,59 @@ class DocumentParser {
          return result;
      }
      parseGraphic(elem) {
@@ -199,7 +257,15 @@ index 2691670..b101d1c 100644
      parsePicture(elem) {
          var result = { type: DomType.Image, src: "", cssStyle: {} };
          var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3524,6 +3575,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3513,6 +3566,7 @@ section.${c}>footer { z-index: 1; }
+             return null;
+         const frg = new DocumentFragment();
+         const commentRefEl = this.createElement("span", { className: `${this.className}-comment-ref` }, ['💬']);
++        commentRefEl.setAttribute("data-comment-id", comment.id);
+         const commentsContainerEl = this.createElement("div", { className: `${this.className}-comment-popover` });
+         this.renderCommentContent(comment, commentsContainerEl);
+         frg.appendChild(this.createComment(`comment #${comment.id} by ${comment.author} on ${comment.date}`));
+@@ -3524,6 +3578,7 @@ section.${c}>footer { z-index: 1; }
          if (!this.options.renderAltChunks)
              return null;
          var result = this.createElement("iframe");
@@ -207,7 +273,27 @@ index 2691670..b101d1c 100644
          this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
              result.srcdoc = x;
          }));
-@@ -3699,8 +3751,10 @@ section.${c}>footer { z-index: 1; }
+@@ -3575,12 +3630,17 @@ section.${c}>footer { z-index: 1; }
+     }
+     renderInserted(elem) {
+         if (this.options.renderChanges)
+-            return this.renderContainer(elem, "ins");
++            return this.markRevision(this.renderContainer(elem, "ins"), elem);
+         return this.renderElements(elem.children);
+     }
++    markRevision(element, elem) {
++        if (elem.id != null)
++            element.setAttribute("data-revision-id", elem.id);
++        return element;
++    }
+     renderDeleted(elem) {
+         if (this.options.renderChanges)
+-            return this.renderContainer(elem, "del");
++            return this.markRevision(this.renderContainer(elem, "del"), elem);
+         return null;
+     }
+     renderSymbol(elem) {
+@@ -3699,8 +3759,10 @@ section.${c}>footer { z-index: 1; }
          return result;
      }
      renderVmlPicture(elem) {

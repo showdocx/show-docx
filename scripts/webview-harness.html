@@ -163,8 +163,8 @@
           }];
           structure.commentOrder = ['0'];
           structure.revisions = [
-            { type: 'insertion', author: 'Alice Reviewer', text: 'an inserted phrase' },
-            { type: 'deletion', author: 'Alice Reviewer', text: 'a deleted phrase' }
+            { type: 'insertion', id: '1', author: 'Alice Reviewer', text: 'an inserted phrase' },
+            { type: 'deletion', id: '2', author: 'Alice Reviewer', text: 'a deleted phrase' }
           ];
         }
         setTimeout(() => dispatch({ type: 'documentDetails', properties, structure }), 0);

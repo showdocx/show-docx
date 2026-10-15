@@ -149,6 +149,20 @@ describe('Comments a document records', () => {
       + '<w:commentRangeStart w:id="7"/>';
     assert.deepEqual(readCommentOrder(body), ['7', '3']);
   });
+
+  it('places a comment on a point, which has a reference and no range', () => {
+    const body = '<w:commentRangeStart w:id="1"/><w:r><w:commentReference w:id="4"/></w:r>'
+      + '<w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r>';
+    assert.deepEqual(readCommentOrder(body), ['1', '4']);
+  });
+
+  it('decodes the entities an author name is stored with', () => {
+    const [only] = readComments(
+      '<w:comment w:id="2" w:author="Smith &amp; Jones &#x2014; Legal"><w:p><w:r><w:t>x</w:t></w:r></w:p></w:comment>',
+      '',
+    );
+    assert.equal(only?.author, 'Smith & Jones — Legal');
+  });
 });
 
 describe('Tracked changes a document records', () => {
@@ -177,6 +191,50 @@ describe('Tracked changes a document records', () => {
 
   it('skips a change that removed nothing readable', () => {
     assert.deepEqual(readRevisions('<w:ins w:author="A"><w:r/></w:ins>'), []);
+  });
+
+  it('records the id the rendered page carries', () => {
+    const [insertion] = readRevisions('<w:ins w:id="12" w:author="A"><w:r><w:t>x</w:t></w:r></w:ins>');
+    assert.equal(insertion?.id, '12');
+  });
+
+  it('reads nothing into a paragraph mark marked as deleted', () => {
+    // Joining two paragraphs with tracking on deletes the mark between them.
+    // Word writes that as a self-closing w:del, which holds no text; read as an
+    // opening tag, it swallowed the untouched paragraph after it and the next
+    // real deletion, under the wrong author.
+    const body = '<w:p><w:pPr><w:rPr><w:del w:id="3" w:author="Ayse" w:date="2026-01-01T00:00:00Z"/></w:rPr></w:pPr>'
+      + '<w:r><w:t>Never deleted.</w:t></w:r></w:p>'
+      + '<w:p><w:r><w:t>Plain paragraph.</w:t></w:r>'
+      + '<w:del w:id="4" w:author="Mehmet"><w:r><w:delText>really deleted</w:delText></w:r></w:del></w:p>';
+
+    assert.deepEqual(readRevisions(body), [{
+      type: 'deletion',
+      id: '4',
+      author: 'Mehmet',
+      date: undefined,
+      text: 'really deleted',
+    }]);
+  });
+
+  it('reads nothing into a paragraph mark or a table row marked as inserted', () => {
+    const body = '<w:tr><w:trPr><w:ins w:id="1" w:author="A"/></w:trPr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr>'
+      + '<w:p><w:pPr><w:rPr><w:ins w:id="2" w:author="A"/></w:rPr></w:pPr><w:r><w:t>Split here.</w:t></w:r></w:p>'
+      + '<w:p><w:ins w:id="5" w:author="B"><w:r><w:t>added</w:t></w:r></w:ins></w:p>';
+
+    assert.deepEqual(readRevisions(body).map((revision) => [revision.id, revision.author, revision.text]), [
+      ['5', 'B', 'added'],
+    ]);
+  });
+
+  it('lists text one reviewer inserted and another deleted as both', () => {
+    const body = '<w:ins w:id="7" w:author="A"><w:r><w:t>kept </w:t></w:r>'
+      + '<w:del w:id="8" w:author="B"><w:r><w:delText>struck</w:delText></w:r></w:del></w:ins>';
+
+    assert.deepEqual(readRevisions(body).map((revision) => [revision.type, revision.author, revision.text]), [
+      ['insertion', 'A', 'kept'],
+      ['deletion', 'B', 'struck'],
+    ]);
   });
 
   it('reads both kinds out of a real document', async () => {

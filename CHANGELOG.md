@@ -16,6 +16,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Search works in Turkish text.** Lowercasing `İ` produces two characters where there was one, so every `İ` before a match moved the highlight one character to the right — searching "hedef" in a line starting "İSTANBUL İZMİR" highlighted "kelim" — and a match could vanish altogether. `istanbul` did not find `İSTANBUL`, nor `ırmak` `IRMAK`. Both searches now fold `I`, `ı`, `İ` and `i` together and map every match back to where it really is; the workspace search's snippets were off by the same amount. ([#63](https://github.com/showdocx/show-docx/issues/63))
 
+- **The comments and changes panel lists what was actually changed.** Word marks an inserted or deleted paragraph mark — splitting or joining paragraphs with tracking on — with a self-closing `<w:ins/>` or `<w:del/>`, and the panel read it as the start of a change: untouched text up to the next revision was listed as deleted or inserted, under the wrong author, and the real change after it disappeared. Text one reviewer inserted and another deleted is now listed as both. Cards follow their own comment or change rather than the nth one on the page, so one annotation rendered differently no longer sends every later card to the wrong place, and an author such as "Smith & Jones" is no longer shown as `Smith &amp; Jones`. ([#64](https://github.com/showdocx/show-docx/issues/64))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

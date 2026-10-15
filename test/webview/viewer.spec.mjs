@@ -286,8 +286,12 @@ test('follows a comment to its place in Visual mode only', async ({ page }) => {
   await expect(page.locator('#visual-container section')).toBeVisible();
   await page.locator('#comments-toggle').click();
 
-  // Visual mode renders anchors, so a card can be followed.
-  await expect(page.locator('#comments-list .comment-anchored').first()).toBeVisible();
+  // Visual mode renders anchors, so a card can be followed — each to the
+  // element carrying its own id, rather than to the nth one on the page.
+  await expect(page.locator('#comments-list .comment-anchored')).toHaveCount(3);
+  await expect(page.locator('#visual-container [data-comment-id="0"]')).toHaveCount(1);
+  await expect(page.locator('#visual-container ins[data-revision-id="1"]')).toHaveCount(1);
+  await expect(page.locator('#visual-container del[data-revision-id="2"]')).toHaveCount(1);
 
   await page.locator('#mode-text').click();
   await expect(page.locator('#text-container')).toContainText('Reviewed Document');

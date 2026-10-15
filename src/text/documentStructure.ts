@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { decodeEntities } from './htmlToText';
 import { xmlToLines } from './searchText';
 
 /**
@@ -34,6 +35,8 @@ export interface DocumentComment {
 
 export interface DocumentRevision {
   readonly type: 'insertion' | 'deletion';
+  /** The revision's `w:id`, which the rendered page carries too. */
+  readonly id?: string;
   readonly author: string;
   readonly date?: string;
   readonly text: string;
@@ -214,10 +217,14 @@ export function readComments(commentsXml: string, extendedXml: string): Document
   });
 }
 
-/** Comment ids in the order the body anchors them, which is reading order. */
+/**
+ * Comment ids in the order the body anchors them, which is reading order. A
+ * comment is anchored where its range starts, or at its reference when it has
+ * no range — a comment on a point rather than on a stretch of text.
+ */
 export function readCommentOrder(documentXml: string): string[] {
   const order: string[] = [];
-  for (const match of documentXml.matchAll(/<w:commentRangeStart\b[^>]*w:id="([^"]+)"/g)) {
+  for (const match of documentXml.matchAll(/<w:comment(?:RangeStart|Reference)\b[^>]*w:id="([^"]+)"/g)) {
     const id = match[1];
     if (id !== undefined && !order.includes(id)) {
       order.push(id);
@@ -231,38 +238,94 @@ export function readCommentOrder(documentXml: string): string[] {
  *
  * Read from the body rather than from the render, so they are listed in Text
  * mode too — where mammoth drops deletions entirely and the panel was empty.
+ *
+ * Each `w:ins` and `w:del` element is read on its own, in the order it opens.
+ * Two shapes need care:
+ *
+ * - **Self-closing** `<w:ins/>` and `<w:del/>` mark a paragraph mark or a table
+ *   row as inserted or deleted. They hold no text, and treating one as an
+ *   opening tag swallowed everything up to the next revision's end — listing
+ *   untouched text as deleted, under the wrong author.
+ * - **Nested**: text one reviewer inserted and another deleted is a `w:del`
+ *   inside a `w:ins`. Both are listed; the insertion shows what is left of it.
  */
 export function readRevisions(documentXml: string): DocumentRevision[] {
   const revisions: DocumentRevision[] = [];
-  const pattern = /<w:(ins|del)\b([^>]*)>([\s\S]*?)<\/w:\1>/g;
-  for (const match of documentXml.matchAll(pattern)) {
-    const [, kind, attributes = '', inner = ''] = match;
+  for (const element of revisionElements(documentXml)) {
     // A deletion stores its text in w:delText, which xmlToLines drops on
     // purpose; unwrap it so the panel can show what was removed.
-    const unwrapped = inner.replaceAll(/<w:delText\b([^>]*)>/g, '<w:t$1>')
-      .replaceAll('</w:delText>', '</w:t>');
-    const text = xmlToLines(unwrapped).replaceAll('\n', ' ').trim();
+    const readable = element.kind === 'del'
+      ? element.inner.replaceAll(/<w:delText\b([^>]*)>/g, '<w:t$1>')
+        .replaceAll('</w:delText>', '</w:t>')
+      : element.inner;
+    const text = xmlToLines(readable).replaceAll('\n', ' ').trim();
     if (text === '') {
       continue;
     }
+    const id = attribute(element.attributes, 'w:id');
     revisions.push({
-      type: kind === 'ins' ? 'insertion' : 'deletion',
-      author: attribute(attributes, 'w:author') ?? 'Unknown',
-      date: attribute(attributes, 'w:date'),
+      type: element.kind === 'ins' ? 'insertion' : 'deletion',
+      ...(id !== undefined ? { id } : {}),
+      author: attribute(element.attributes, 'w:author') ?? 'Unknown',
+      date: attribute(element.attributes, 'w:date'),
       text,
     });
   }
   return revisions;
 }
 
+interface RevisionElement {
+  readonly kind: 'ins' | 'del';
+  readonly attributes: string;
+  readonly inner: string;
+}
+
+/** Every non-empty `w:ins` and `w:del`, outer before inner, in document order. */
+function revisionElements(xml: string): RevisionElement[] {
+  const elements: RevisionElement[] = [];
+  const opening = /<w:(ins|del)\b([^>]*?)(\/?)>/g;
+  for (const match of xml.matchAll(opening)) {
+    const [whole, kind, attributes = '', selfClosing] = match;
+    if (selfClosing === '/' || (kind !== 'ins' && kind !== 'del')) {
+      continue;
+    }
+    const start = (match.index ?? 0) + whole.length;
+    const end = closingTagOf(xml, kind, start);
+    if (end === -1) {
+      continue;
+    }
+    elements.push({ kind, attributes, inner: xml.slice(start, end) });
+  }
+  return elements;
+}
+
+/** Where the `</w:kind>` that closes an element opened just before `from` starts. */
+function closingTagOf(xml: string, kind: string, from: number): number {
+  const tags = new RegExp(`<(/?)w:${kind}\\b[^>]*?(/?)>`, 'g');
+  tags.lastIndex = from;
+  let depth = 1;
+  for (let match = tags.exec(xml); match; match = tags.exec(xml)) {
+    if (match[1] === '/') {
+      depth -= 1;
+      if (depth === 0) {
+        return match.index;
+      }
+    } else if (match[2] !== '/') {
+      depth += 1;
+    }
+  }
+  return -1;
+}
+
 /* --------------------------------------------------------------------------
  * XML reading
  * ----------------------------------------------------------------------- */
 
+/** An attribute's value, with the entities XML escapes it with decoded. */
 function attribute(xml: string, name: string): string | undefined {
   const escaped = name.replaceAll(':', '\\:');
-  const match = new RegExp(`${escaped}="([^"]*)"`).exec(xml);
-  return match?.[1];
+  const match = new RegExp(`(?:^|\\s)${escaped}="([^"]*)"`).exec(xml);
+  return match?.[1] === undefined ? undefined : decodeEntities(match[1]);
 }
 
 /** The value of an attribute on the first `<element>` in the fragment. */
