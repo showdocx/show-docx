@@ -66,6 +66,48 @@ export function resolveDocxCandidates(
   return candidates.filter((candidate) => isInsideAnyFolder(candidate, workspaceFolders));
 }
 
+export type RealPath = (value: string) => Promise<string>;
+
+/**
+ * The candidates that are still inside a workspace folder once every link is
+ * followed, as the paths they really are.
+ *
+ * The check above is on the path as written. A symlink inside the workspace
+ * that points outside it passes that check, and reading it reads the target —
+ * so a repository could pair a link to a private document with an instruction
+ * to read it. Both the candidate and the folders are resolved first, so a
+ * workspace opened through a link of its own still contains its files. A
+ * candidate that cannot be resolved does not exist, and is left out.
+ */
+export async function containedCandidates(
+  candidates: readonly string[],
+  workspaceFolders: readonly string[],
+  realpath: RealPath,
+): Promise<string[]> {
+  const folders: string[] = [];
+  for (const folder of workspaceFolders) {
+    try {
+      folders.push(await realpath(folder));
+    } catch {
+      // A folder that cannot be resolved contains nothing that can be read.
+    }
+  }
+
+  const contained: string[] = [];
+  for (const candidate of candidates) {
+    let real: string;
+    try {
+      real = await realpath(candidate);
+    } catch {
+      continue;
+    }
+    if (isDocumentPath(real) && isInsideAnyFolder(real, folders)) {
+      contained.push(real);
+    }
+  }
+  return contained;
+}
+
 export function isInsideAnyFolder(
   candidate: string,
   workspaceFolders: readonly string[],

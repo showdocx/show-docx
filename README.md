@@ -107,7 +107,7 @@ An AI agent running in your editor cannot read a `.docx`: opening one returns a 
 
 **ShowDocx calls no model.** Your own agent, on your own subscription, asks this extension for text it already knows how to produce. There is no API key, no cost and no outbound request — the privacy guarantee below holds exactly as written.
 
-Only documents inside the open workspace can be read, and only `.docx` files. A model's arguments can be steered by whatever it has read, so the tool treats a path as a request rather than a permission.
+Only Word documents (`.docx`, `.docm`, `.dotx`, `.dotm`) inside the open workspace can be read, and a link that leads outside the workspace is not followed. A model's arguments can be steered by whatever it has read, so the tool treats a path as a request rather than a permission.
 
 The tool needs VS Code 1.95 or later. ShowDocx still declares support from 1.85, detects the API at runtime, and simply does not register the tool where it is absent.
 

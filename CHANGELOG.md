@@ -12,6 +12,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Only a revision name reaches git as one.** The revision in a comparison's URI went to `git show` unchecked, so a crafted `showdocx-diff:` URI could pass git an option instead. A revision must now start with a letter or digit and hold nothing but what revision names are written with, and is refused before git runs. **Compare with HEAD** also no longer runs git in a restricted workspace, as VS Code's own Git extension does not.
 
+- **The `readDocx` tool follows links before it decides a document is in the workspace.** The boundary was checked on the path as written, so a link inside the workspace to a document outside it was read. Links are now resolved, for the document and for the workspace folders, before the check.
+
 ### Fixed
 
 - **A Markdown mirror only replaces a file ShowDocx wrote.** Any `.md` with the expected name counted as a mirror, so with `markdownMirror: onChange` a hand-written `guide.md` beside `guide.docx` was overwritten on the document's next change, and **Write Markdown Mirrors** did the same. A file is now a mirror only when its first line says ShowDocx generated it from that document (an empty file still counts, as a request for one). Two documents whose mirrors would be the same file — `x.docx` beside `x.docm`, or two `spec.docx` with a mirror directory set — are both skipped and reported, where the last one used to win silently. The header now names the document by its path in the workspace, so existing mirrors of documents in subfolders change once on their next refresh. ([#62](https://github.com/showdocx/show-docx/issues/62))

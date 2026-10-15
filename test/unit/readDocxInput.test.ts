@@ -4,6 +4,7 @@ import { describe, it } from 'mocha';
 import {
   DEFAULT_MAX_CHARACTERS,
   ToolInputError,
+  containedCandidates,
   isInsideAnyFolder,
   parseReadDocxInput,
   resolveDocxCandidates,
@@ -110,6 +111,58 @@ describe('Read tool: resolving a path', () => {
 
   it('does not accept the workspace folder itself', () => {
     assert.equal(isInsideAnyFolder(WORKSPACE, [WORKSPACE]), false);
+  });
+});
+
+describe('Read tool: following links', () => {
+  /** Stands in for the file system: what each path really is, if it exists. */
+  function links(map: Record<string, string>): (value: string) => Promise<string> {
+    return async (value) => {
+      const real = map[value];
+      if (real === undefined) {
+        throw new Error(`ENOENT: ${value}`);
+      }
+      return real;
+    };
+  }
+
+  it('refuses a link inside the workspace that leads outside it', async () => {
+    const link = path.join(WORKSPACE, 'docs', 'link.docx');
+    const realpath = links({
+      [WORKSPACE]: WORKSPACE,
+      [link]: path.join(OTHER, 'private', 'secret.docx'),
+    });
+
+    assert.deepEqual(await containedCandidates([link], [WORKSPACE], realpath), []);
+  });
+
+  it('reads a link that stays inside, as the file it leads to', async () => {
+    const link = path.join(WORKSPACE, 'latest.docx');
+    const target = path.join(WORKSPACE, 'archive', 'v3.docx');
+    const realpath = links({ [WORKSPACE]: WORKSPACE, [link]: target });
+
+    assert.deepEqual(await containedCandidates([link], [WORKSPACE], realpath), [target]);
+  });
+
+  it('still contains its files when the workspace itself was opened through a link', async () => {
+    const real = path.resolve('/data/workspace');
+    const candidate = path.join(WORKSPACE, 'spec.docx');
+    const realpath = links({ [WORKSPACE]: real, [candidate]: path.join(real, 'spec.docx') });
+
+    assert.deepEqual(await containedCandidates([candidate], [WORKSPACE], realpath), [path.join(real, 'spec.docx')]);
+  });
+
+  it('refuses a link to something that is not a Word document', async () => {
+    const link = path.join(WORKSPACE, 'notes.docx');
+    const realpath = links({ [WORKSPACE]: WORKSPACE, [link]: path.join(WORKSPACE, '.env') });
+
+    assert.deepEqual(await containedCandidates([link], [WORKSPACE], realpath), []);
+  });
+
+  it('leaves out a path that does not exist', async () => {
+    const realpath = links({ [WORKSPACE]: WORKSPACE });
+
+    assert.deepEqual(await containedCandidates([path.join(WORKSPACE, 'gone.docx')], [WORKSPACE], realpath), []);
   });
 });
 
