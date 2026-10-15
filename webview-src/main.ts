@@ -203,21 +203,31 @@ viewport.addEventListener('scroll', () => {
   }, 120);
 });
 
-viewport.addEventListener('click', (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) {
+/**
+ * Every link click is decided here, and nowhere else.
+ *
+ * VS Code's own webview host listens for clicks on the window too, ignores
+ * preventDefault, and opens http, https, mailto and vscode links itself —
+ * without asking whether the workspace is trusted. So a click is stopped in
+ * the capture phase, before it can reach that listener, and only then does
+ * ShowDocx choose what to do with it: scroll to a fragment, ask the host to
+ * open an external link, or nothing at all.
+ */
+window.addEventListener('click', (event) => {
+  const anchor = findLink(event);
+  if (!anchor) {
     return;
   }
-  const anchor = target.closest('a');
-  const href = anchor?.getAttribute('href');
-  if (!href || href.startsWith('#')) {
-    return;
-  }
-  if (/^(https?:|mailto:)/i.test(href)) {
-    event.preventDefault();
+  event.preventDefault();
+  event.stopPropagation();
+
+  const href = linkTarget(anchor);
+  if (href.startsWith('#')) {
+    scrollToFragment(href.slice(1));
+  } else if (isExternalLink(href)) {
     vscode.postMessage({ type: 'openExternal', href });
   }
-});
+}, true);
 
 getButton('retry-button').addEventListener('click', () => {
   showLoading('Reloading document...', 10);
@@ -574,6 +584,75 @@ async function renderVisual(arrayBuffer: ArrayBuffer): Promise<void> {
       const firstMsg = firstError instanceof Error ? (firstError.stack || firstError.message) : String(firstError);
       const secondMsg = secondError instanceof Error ? (secondError.stack || secondError.message) : String(secondError);
       throw new Error(`[Attempt 1]: ${firstMsg}\n[Attempt 2]: ${secondMsg}`);
+    }
+  }
+  // docx-preview copies a hyperlink's target into href exactly as the document
+  // states it. Text mode is sanitized by DOMPurify; this is the same rule for
+  // the page layout, so a link that could never be followed does not look as
+  // though it could.
+  neutralizeLinks(visualContainer);
+}
+
+const EXTERNAL_LINK = /^(?:https?|mailto):/i;
+
+function isExternalLink(href: string): boolean {
+  return EXTERNAL_LINK.test(href);
+}
+
+/**
+ * The link a click landed on, if any — HTML or SVG, at any depth. An empty
+ * href still counts: the browser resolves it to the page itself, and VS Code's
+ * listener would act on that.
+ */
+function findLink(event: MouseEvent): Element | undefined {
+  for (const node of event.composedPath()) {
+    if (
+      node instanceof Element
+      && node.localName === 'a'
+      && (node.hasAttribute('href') || node.hasAttribute('xlink:href'))
+    ) {
+      return node;
+    }
+  }
+  return undefined;
+}
+
+function linkTarget(anchor: Element): string {
+  return (anchor.getAttribute('href') ?? anchor.getAttribute('xlink:href') ?? '').trim();
+}
+
+/**
+ * Follows a link within the document: a bookmark, a footnote, a table of
+ * contents entry. Looked up in the mode on screen, because the other one may
+ * hold an element with the same id while it is hidden.
+ */
+function scrollToFragment(fragment: string): void {
+  let decoded = fragment;
+  try {
+    decoded = decodeURIComponent(fragment);
+  } catch {
+    // Not percent-encoded after all; the raw fragment is the id.
+  }
+  const container = getActiveContainer();
+  for (const id of new Set([fragment, decoded])) {
+    if (id === '') {
+      continue;
+    }
+    const escaped = CSS.escape(id);
+    const target = container.querySelector(`#${escaped}, a[name="${escaped}"]`);
+    if (target) {
+      target.scrollIntoView({ block: 'start' });
+      return;
+    }
+  }
+}
+
+/** Removes every href that is neither a fragment nor an external link. */
+function neutralizeLinks(container: HTMLElement): void {
+  for (const anchor of container.querySelectorAll('a[href]')) {
+    const href = linkTarget(anchor);
+    if (!href.startsWith('#') && !isExternalLink(href)) {
+      anchor.removeAttribute('href');
     }
   }
 }

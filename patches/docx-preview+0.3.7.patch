@@ -1,5 +1,5 @@
 diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
-index d8e0043..bdd27f5 100644
+index d8e0043..fe1e540 100644
 --- a/node_modules/docx-preview/dist/docx-preview.js
 +++ b/node_modules/docx-preview/dist/docx-preview.js
 @@ -1371,7 +1371,12 @@
@@ -87,7 +87,15 @@ index d8e0043..bdd27f5 100644
          parsePicture(elem) {
              var result = { type: DomType.Image, src: "", cssStyle: {} };
              var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3703,7 +3754,9 @@ section.${c}>footer { z-index: 1; }
+@@ -3528,6 +3579,7 @@ section.${c}>footer { z-index: 1; }
+             if (!this.options.renderAltChunks)
+                 return null;
+             var result = this.createElement("iframe");
++            result.setAttribute("sandbox", "");
+             this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
+                 result.srcdoc = x;
+             }));
+@@ -3703,7 +3755,9 @@ section.${c}>footer { z-index: 1; }
              return result;
          }
          renderVmlPicture(elem) {
@@ -99,7 +107,7 @@ index d8e0043..bdd27f5 100644
          renderVmlElement(elem) {
              var container = this.createSvgElement("svg");
 diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
-index 2691670..4d7a27e 100644
+index 2691670..b101d1c 100644
 --- a/node_modules/docx-preview/dist/docx-preview.mjs
 +++ b/node_modules/docx-preview/dist/docx-preview.mjs
 @@ -1367,7 +1367,12 @@ var autos = {
@@ -191,7 +199,15 @@ index 2691670..4d7a27e 100644
      parsePicture(elem) {
          var result = { type: DomType.Image, src: "", cssStyle: {} };
          var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3699,8 +3750,10 @@ section.${c}>footer { z-index: 1; }
+@@ -3524,6 +3575,7 @@ section.${c}>footer { z-index: 1; }
+         if (!this.options.renderAltChunks)
+             return null;
+         var result = this.createElement("iframe");
++        result.setAttribute("sandbox", "");
+         this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
+             result.srcdoc = x;
+         }));
+@@ -3699,8 +3751,10 @@ section.${c}>footer { z-index: 1; }
          return result;
      }
      renderVmlPicture(elem) {

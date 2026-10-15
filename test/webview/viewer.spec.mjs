@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { linksDocument, serveDocument } from './documents.mjs';
 
 test('renders visual and text modes and updates zoom', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
@@ -821,6 +822,56 @@ test('warns that the text view shows tracked changes as accepted', async ({ page
 
   // The deleted phrase is genuinely absent from the text view — hence the warning.
   await expect(page.locator('#text-container')).not.toContainText('a deleted phrase');
+});
+
+for (const mode of ['visual', 'text']) {
+  test(`decides every link click itself in ${mode} mode, so the webview host opens none`, async ({ page }) => {
+    await serveDocument(page, 'links.docx', await linksDocument());
+    await page.goto(`/scripts/webview-harness.html?fixture=links.docx&mode=${mode}`);
+    const container = page.locator(mode === 'visual' ? '#visual-container' : '#text-container');
+    await expect(container).toContainText('Example site');
+
+    const opened = () => page.evaluate(() => window.__showDocxTest.messages
+      .filter((message) => message.type === 'openExternal')
+      .map((message) => message.href));
+
+    await container.getByText('Example site').click();
+    await container.getByText('Write to us').click();
+    await expect.poll(opened).toEqual(['https://example.com/spec', 'mailto:team@example.com']);
+
+    // Neither of these may be followed: one would hand a URI to another
+    // extension, the other would open a local file.
+    await container.getByText('Clone this repository').click();
+    await container.getByText('Local file').click();
+    await container.getByText('Go to the target').click();
+    await expect(container.getByText('The target paragraph')).toBeInViewport();
+
+    expect(await opened()).toEqual(['https://example.com/spec', 'mailto:team@example.com']);
+    expect(await page.evaluate(() => window.__showDocxTest.hostLinkClicks)).toEqual([]);
+  });
+}
+
+test('keeps no followable href for a link the viewer would refuse', async ({ page }) => {
+  await serveDocument(page, 'links.docx', await linksDocument());
+  await page.goto('/scripts/webview-harness.html?fixture=links.docx');
+  await expect(page.locator('#visual-container')).toContainText('Clone this repository');
+
+  const hrefs = await page.locator('#visual-container a[href]').evaluateAll(
+    (anchors) => anchors.map((anchor) => anchor.getAttribute('href')),
+  );
+  expect(hrefs).toContain('https://example.com/spec');
+  expect(hrefs).toContain('mailto:team@example.com');
+  expect(hrefs.some((href) => /^(vscode|file):/i.test(href))).toBe(false);
+});
+
+test('renders embedded HTML in a sandboxed frame', async ({ page }) => {
+  await serveDocument(page, 'links.docx', await linksDocument());
+  await page.goto('/scripts/webview-harness.html?fixture=links.docx');
+  const frame = page.locator('#visual-container iframe');
+  await expect(frame).toHaveCount(1);
+  await expect(frame).toHaveAttribute('sandbox', '');
+  await expect(page.frameLocator('#visual-container iframe').locator('body'))
+    .toContainText('Embedded HTML chunk');
 });
 
 test('shows the error state when a chunked transfer loses chunks', async ({ page }) => {

@@ -2,6 +2,12 @@
 
 All notable changes to ShowDocx are documented in this file.
 
+## [Unreleased]
+
+### Security
+
+- **Links in a document are decided by ShowDocx alone.** VS Code's webview host also listens for link clicks, and opened `http`, `https`, `mailto` and `vscode` links itself, whatever ShowDocx decided — so in a restricted workspace a link could still be followed, and in a trusted one an `https` link opened twice. The viewer now stops every link click before the host sees it. Visual mode also drops any `href` that is neither a fragment nor an external link, as Text mode already did, and HTML a document embeds (`altChunk`) is rendered in a sandboxed frame.
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

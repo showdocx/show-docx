@@ -44,9 +44,23 @@
     }
     const testState = {
       messages: [],
-      printCount: 0
+      printCount: 0,
+      hostLinkClicks: []
     };
     window.__showDocxTest = testState;
+    // Stands in for the listener VS Code's webview host adds to the window: it
+    // runs in the bubble phase, ignores defaultPrevented, and opens whatever
+    // link it finds, trusted workspace or not. A click that reaches it has
+    // bypassed ShowDocx's own decision about the link.
+    window.addEventListener('click', (event) => {
+      for (const node of event.composedPath()) {
+        if (node.tagName && node.tagName.toLowerCase() === 'a' && node.href) {
+          testState.hostLinkClicks.push(node.getAttribute('href'));
+          event.preventDefault();
+          return;
+        }
+      }
+    });
     window.print = () => {
       testState.printCount += 1;
     };
