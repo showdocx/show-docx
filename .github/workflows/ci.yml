@@ -41,6 +41,15 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:integration
 
+      - name: Extension Host tests in Restricted Mode (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:restricted
+
+      # engines promises ^1.85.0, so the oldest release it promises is tested too.
+      - name: Extension Host tests on VS Code 1.85.0 (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:integration:minimum
+
       - name: Extension Host tests (Windows)
         if: runner.os == 'Windows'
         run: npm run test:integration

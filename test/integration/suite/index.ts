@@ -8,10 +8,16 @@ export async function run(): Promise<void> {
     timeout: 20_000,
     ui: 'bdd',
   });
+  // Tests tagged @restricted need an untrusted workspace, which only the
+  // restricted run has; every other run leaves them out.
   // SHOWDOCX_TEST_GREP=pattern runs only the matching tests, as mocha's --grep would.
   const grep = process.env.SHOWDOCX_TEST_GREP;
-  if (grep) {
+  if (process.env.SHOWDOCX_RESTRICTED === '1') {
+    mocha.grep('@restricted');
+  } else if (grep) {
     mocha.grep(grep);
+  } else {
+    mocha.grep('@restricted').invert();
   }
   const testsDirectory = dirname(dirname(__filename));
   const testFiles = await findTests(testsDirectory);

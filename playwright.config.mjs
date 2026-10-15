@@ -5,6 +5,8 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
+  // A retry is there to tell a flaky test from a broken one, not to pass it.
+  failOnFlakyTests: Boolean(process.env.CI),
   reporter: 'line',
   timeout: 30_000,
   use: {

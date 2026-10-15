@@ -6,6 +6,12 @@ import {
   serveDocument,
   turkishDocument,
 } from './documents.mjs';
+import { routeHostDetails } from './hostDetails.mjs';
+
+// Every document's details come from the host's own parser, as they do in VS Code.
+test.beforeEach(async ({ page }) => {
+  await routeHostDetails(page);
+});
 
 test('renders visual and text modes and updates zoom', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
@@ -401,14 +407,15 @@ test('shows what the document says about itself', async ({ page }) => {
   await page.locator('#properties-toggle').click();
   await expect(page.locator('#properties-sidebar')).toBeVisible();
 
+  // What simple.docx itself states, read by the host's parser.
   const panel = page.locator('#properties-list');
   await expect(panel).toContainText('ShowDocx sample document');
-  await expect(panel).toContainText('A Reviewer');
+  await expect(panel).toContainText('ShowDocx');
   await expect(panel).toContainText('Revision');
 
   // A date is shown the way the reader's machine writes it, not as stored.
-  await expect(panel).not.toContainText('2026-01-02T03:04:05Z');
   await expect(panel).toContainText('2026');
+  await expect(panel).not.toContainText('T11:30:03');
 
   await page.locator('#properties-close').click();
   await expect(page.locator('#properties-sidebar')).toBeHidden();

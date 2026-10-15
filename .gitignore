@@ -9,3 +9,4 @@ test-results/
 .vscode-test/
 implementation_plan.md
 scratch/
+test/workspace/.vscode/

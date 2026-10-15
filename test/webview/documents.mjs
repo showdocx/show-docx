@@ -10,6 +10,7 @@ import {
   TextRun,
 } from 'docx';
 import JSZip from 'jszip';
+import { rememberServed } from './hostDetails.mjs';
 
 /**
  * Documents built for a single webview test, served in place of a fixture.
@@ -30,6 +31,7 @@ function once(build) {
 
 /** Serves a document the harness will load as `?fixture=<name>`. */
 export async function serveDocument(page, name, bytes) {
+  rememberServed(name, bytes);
   await page.route(`**/test/fixtures/${name}`, (route) => route.fulfill({
     body: bytes,
     contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
