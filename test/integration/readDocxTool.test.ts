@@ -32,6 +32,12 @@ function languageModel(): LanguageModelApi | undefined {
   return (vscode as unknown as { lm?: LanguageModelApi }).lm;
 }
 
+/** Whether the running VS Code is at least this release. */
+function isAtLeast(major: number, minor: number): boolean {
+  const [runningMajor = 0, runningMinor = 0] = vscode.version.split('.').map(Number);
+  return runningMajor > major || (runningMajor === major && runningMinor >= minor);
+}
+
 /** The text an agent would receive from one call. */
 function textOf(result: ToolResult): string {
   return (result.content ?? [])
@@ -109,7 +115,12 @@ describe('Reading a DOCX for a language model', () => {
 });
 
 describe('Detecting the language model tool API', () => {
-  it('finds the API on this VS Code', () => {
+  it('finds the API on a VS Code that has it', function () {
+    // The API arrived in 1.95. Below it, finding none is the right answer,
+    // and the test below covers that.
+    if (!isAtLeast(1, 95)) {
+      this.skip();
+    }
     assert.ok(resolveToolApi(vscode), 'this VS Code has the tool API');
   });
 
@@ -139,7 +150,11 @@ describe('Detecting the language model tool API', () => {
 });
 
 describe('Detecting the chat API', () => {
-  it('finds the API on this VS Code', () => {
+  it('finds the API on a VS Code that has it', function () {
+    // Chat participants and model selection became stable in 1.90.
+    if (!isAtLeast(1, 90)) {
+      this.skip();
+    }
     assert.ok(resolveChatApi(vscode), 'this VS Code has the chat API');
   });
 

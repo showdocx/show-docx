@@ -57,6 +57,14 @@ export async function compareWithHead(
     );
     return;
   }
+  if (!vscode.workspace.isTrusted) {
+    // A repository's own configuration decides what parts of git run; that is
+    // why VS Code's Git extension does not run git in Restricted Mode either.
+    void vscode.window.showWarningMessage(
+      'ShowDocx compares with git, which it does not run in a restricted workspace. Trust this workspace to compare.',
+    );
+    return;
+  }
 
   const name = path.basename(target.path);
   try {

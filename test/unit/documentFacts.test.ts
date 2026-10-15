@@ -7,7 +7,9 @@ import {
   readDocumentProperties,
   readMedia,
   describeDocument,
+  freeName,
   imageName,
+  pageCount,
   readTag,
   readingMinutes,
 } from '../../src/text/documentFacts';
@@ -75,6 +77,21 @@ describe('Reading a single XML tag', () => {
   });
 });
 
+describe('Keeping both when a name is taken', () => {
+  it('keeps a name nothing is using', () => {
+    assert.equal(freeName('spec-1.png', () => false), 'spec-1.png');
+  });
+
+  it('numbers the copy before its extension, past every number already used', () => {
+    const taken = new Set(['spec-1.png', 'spec-1 (2).png']);
+    assert.equal(freeName('spec-1.png', (name) => taken.has(name)), 'spec-1 (3).png');
+  });
+
+  it('numbers a name without an extension at its end', () => {
+    assert.equal(freeName('notes', (name) => name === 'notes'), 'notes (2)');
+  });
+});
+
 describe('Images stored in a document', () => {
   it('finds the pictures in the package', async () => {
     const media = await readMedia(await fixture('with-images.docx'));
@@ -121,6 +138,25 @@ describe('Counting a document', () => {
     assert.equal(readingMinutes(10), 1);
     assert.equal(readingMinutes(200), 1);
     assert.equal(readingMinutes(6480), 32);
+  });
+});
+
+describe('Choosing the page count to show', () => {
+  it('does not call a long document one page because it was rendered as one', () => {
+    // A document saved by a tool that records no page breaks renders as a
+    // single long page; Word's own count is the better answer.
+    assert.equal(pageCount(1, 15), 15);
+  });
+
+  it('never shows fewer pages than are on screen', () => {
+    assert.equal(pageCount(12, 9), 12);
+  });
+
+  it('uses whichever count there is', () => {
+    assert.equal(pageCount(4, undefined), 4);
+    assert.equal(pageCount(undefined, 7), 7);
+    assert.equal(pageCount(undefined, undefined), undefined);
+    assert.equal(pageCount(0, undefined), undefined);
   });
 });
 

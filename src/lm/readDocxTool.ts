@@ -1,12 +1,15 @@
+import { realpath } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { convertDocxToText } from '../text/docxText';
 import {
   ToolInputError,
+  containedCandidates,
   parseReadDocxInput,
   resolveDocxCandidates,
   truncateForModel,
 } from './readDocxInput';
+import type { RealPath } from './readDocxInput';
 import { getLog } from '../log';
 
 /**
@@ -45,6 +48,8 @@ export interface ReadDocxHost {
   /** The folders a document may be read from. */
   workspaceFolders(): readonly string[];
   read(uri: vscode.Uri): Promise<Uint8Array>;
+  /** Resolves links; the real file system unless a test stands in for it. */
+  realpath?: RealPath;
 }
 
 interface ResolvedToolApi {
@@ -84,12 +89,14 @@ export async function readDocxForModel(
     throw new ToolInputError('ShowDocx reads documents from an open workspace, and none is open.');
   }
 
-  const candidates = resolveDocxCandidates(request.filePath, folders);
-  if (candidates.length === 0) {
+  const requested = resolveDocxCandidates(request.filePath, folders);
+  if (requested.length === 0) {
     throw new ToolInputError(
       `"${request.filePath}" is outside this workspace. ShowDocx only reads documents inside it.`,
     );
   }
+  // Links followed: a path inside the workspace may lead outside it.
+  const candidates = await containedCandidates(requested, folders, host.realpath ?? realpath);
 
   for (const candidate of candidates) {
     const uri = vscode.Uri.file(candidate);

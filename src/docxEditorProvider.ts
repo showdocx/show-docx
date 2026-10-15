@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import JSZip from 'jszip';
 import * as vscode from 'vscode';
 import { DocxDocument, type DocxDocumentHost } from './docxDocument';
 import {
@@ -11,7 +12,7 @@ import { getLog } from './log';
 import { refreshExistingMirror } from './mirror/markdownMirror';
 import { DocumentStatusBar } from './statusBar';
 import { convertDocxToPlainText, convertDocxToText } from './text/docxText';
-import { countWords, readDocumentProperties } from './text/documentFacts';
+import { countWords, pageCount, readDocumentProperties } from './text/documentFacts';
 import type { DocumentProperties, DocumentStats } from './text/documentFacts';
 import { readDocumentStructure } from './text/documentStructure';
 import type { DocumentStructure } from './text/documentStructure';
@@ -56,6 +57,29 @@ interface WebviewMessage {
   state?: unknown;
   /** Raw diagnostic text for the log channel. Never shown to the user. */
   detail?: string;
+  /** Which transfer a report is about, so one about an older render is ignored. */
+  transferId?: number;
+}
+
+/**
+ * Bytes as a plain Uint8Array on a buffer of their own, for postMessage.
+ *
+ * VS Code sends typed arrays to a webview as binary — no base64, no third more
+ * to send and decode — with two conditions, both found the hard way:
+ *
+ * - It recognises a typed array by its constructor's name, so a Node Buffer,
+ *   which is what reading a file returns, is not one: it is turned into JSON
+ *   and arrives empty.
+ * - It sends the whole ArrayBuffer behind a view. A 1 MB chunk that is a view
+ *   of a 100 MB document would send all 100 MB, every time.
+ *
+ * So a view is copied, and anything else is re-wrapped without copying.
+ */
+function ownBuffer(view: Uint8Array): Uint8Array {
+  if (view.byteOffset === 0 && view.byteLength === view.buffer.byteLength) {
+    return view.constructor === Uint8Array ? view : new Uint8Array(view.buffer, 0, view.byteLength);
+  }
+  return new Uint8Array(view);
 }
 
 interface ExportOptions {
@@ -75,14 +99,14 @@ interface PanelEntry {
   pending: unknown[];
   /** What the document says about itself, read once per document. */
   facts?: DocumentFacts;
+  /** Pages the viewer has actually rendered for the current transfer. */
+  renderedPages?: number;
 }
 
 interface DocumentFacts {
   readonly properties: DocumentProperties;
   readonly structure: DocumentStructure;
   readonly words: number;
-  /** Pages the viewer has actually rendered, once it reports them. */
-  renderedPages?: number;
 }
 
 export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<DocxDocument> {
@@ -92,6 +116,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private transferSequence = 0;
   private readonly documentState: DocumentStateStore;
   private readonly statusBar = new DocumentStatusBar();
+  /** Fires when a viewer reports how many pages it rendered for a document. */
+  private readonly renderedEmitter = new vscode.EventEmitter<{ uri: vscode.Uri; pages: number }>();
+  public readonly onDidRender = this.renderedEmitter.event;
 
   public static register(context: vscode.ExtensionContext): DocxEditorProvider {
     const provider = new DocxEditorProvider(context);
@@ -137,7 +164,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       throw error;
     }
     getLog().info(`Opened ${name} (${data.byteLength} bytes).`);
-    const host = this.createDocumentHost(settings.autoReload);
+    const host = this.createDocumentHost();
     const document = new DocxDocument(uri, data, host);
     if (settings.autoReload) {
       document.startWatching();
@@ -234,11 +261,26 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const settings = this.getSettings();
     for (const entry of this.panels) {
       if (!entry.disposed) {
+        this.applyAutoReload(entry.document, settings.autoReload);
         void entry.panel.webview.postMessage({
           type: 'settingsChanged',
           settings,
         });
       }
+    }
+  }
+
+  /**
+   * Starts or stops watching a document that is already open, so the setting
+   * means the same for it as for one opened after the change. Turned back on,
+   * it catches up on whatever changed while it was off.
+   */
+  private applyAutoReload(document: DocxDocument, autoReload: boolean): void {
+    if (autoReload && !document.watching) {
+      document.startWatching();
+      void document.reload({ onlyIfChanged: true });
+    } else if (!autoReload && document.watching) {
+      document.stopWatching();
     }
   }
 
@@ -250,6 +292,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     this.panels.clear();
     this.activeEntry = undefined;
     this.statusBar.dispose();
+    this.renderedEmitter.dispose();
   }
 
   /** What the focused document says about itself, for the properties command. */
@@ -266,24 +309,33 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const { facts } = entry;
     const stats: DocumentStats = {
       words: facts.words,
-      pages: facts.renderedPages ?? facts.properties.pages,
+      pages: pageCount(entry.renderedPages, facts.properties.pages),
     };
     this.statusBar.update(stats);
   }
 
   /**
-   * Reads what the document says about itself, once. A failure here is never a
-   * reason to stop showing the document, so it leaves the facts unknown.
+   * Reads what the document says about itself, once per transfer. A failure
+   * here is never a reason to stop showing the document, so it leaves the facts
+   * unknown.
+   *
+   * The result is tagged with the transfer it was read for. It can finish
+   * before the document has arrived — a large one comes in chunks — or after a
+   * newer version has been sent, and neither the webview nor this entry may
+   * take it for the facts of a document they are not showing.
    */
-  private async readFacts(entry: PanelEntry): Promise<void> {
+  private async readFacts(entry: PanelEntry, transferId: number): Promise<void> {
     try {
-      const data = entry.document.data;
+      // Opened once and read three ways, rather than unzipped by each reader.
+      const zip = await JSZip.loadAsync(entry.document.data);
       const [properties, structure, text] = await Promise.all([
-        readDocumentProperties(data),
-        readDocumentStructure(data),
-        extractSearchText(data),
+        readDocumentProperties(zip),
+        readDocumentStructure(zip),
+        // Counted the way Word counts: footnotes and endnotes in, headers and
+        // footers out.
+        extractSearchText(zip, { headersAndFooters: false }),
       ]);
-      if (entry.disposed) {
+      if (entry.disposed || entry.transferId !== transferId) {
         return;
       }
       entry.facts = { properties, structure, words: countWords(text) };
@@ -292,6 +344,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       // not hold up showing it.
       void entry.panel.webview.postMessage({
         type: 'documentDetails',
+        transferId,
         properties,
         structure,
       });
@@ -351,9 +404,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         }
         break;
       case 'documentStats':
-        if (entry.facts && typeof message.pages === 'number' && message.pages > 0) {
-          entry.facts.renderedPages = message.pages;
+        if (
+          typeof message.pages === 'number'
+          && message.pages > 0
+          && message.transferId === entry.transferId
+        ) {
+          entry.renderedPages = message.pages;
           this.refreshStatusBar();
+          this.renderedEmitter.fire({ uri: entry.document.uri, pages: message.pages });
         }
         break;
       case 'copySelection':
@@ -403,7 +461,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const transferId = ++this.transferSequence;
     entry.transferId = transferId;
     entry.facts = undefined;
-    void this.readFacts(entry);
+    entry.renderedPages = undefined;
+    void this.readFacts(entry, transferId);
     const data = entry.document.data;
     const chunks = splitIntoChunks(data, DEFAULT_CHUNK_SIZE);
     const meta = {
@@ -421,7 +480,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       await entry.panel.webview.postMessage({
         type: 'document',
         ...meta,
-        data: Buffer.from(data).toString('base64'),
+        data: ownBuffer(data),
       });
       return;
     }
@@ -449,7 +508,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         type: 'documentChunk',
         transferId,
         index,
-        data: Buffer.from(chunk).toString('base64'),
+        data: ownBuffer(chunk),
       })) {
         await this.abortTransfer(entry, meta.fileName);
         return;
@@ -700,12 +759,10 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     await vscode.env.openExternal(uri);
   }
 
-  private createDocumentHost(enableWatch: boolean): DocxDocumentHost {
+  private createDocumentHost(): DocxDocumentHost {
     return {
       readFile: (uri) => this.readDocument(uri),
-      watch: (uri, onChange) => (enableWatch
-        ? watchFile(uri, onChange)
-        : { dispose: () => undefined }),
+      watch: (uri, onChange) => watchFile(uri, onChange),
     };
   }
 

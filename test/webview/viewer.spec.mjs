@@ -1,4 +1,17 @@
 import { expect, test } from '@playwright/test';
+import {
+  groupDocument,
+  linksDocument,
+  paginatedDocument,
+  serveDocument,
+  turkishDocument,
+} from './documents.mjs';
+import { routeHostDetails } from './hostDetails.mjs';
+
+// Every document's details come from the host's own parser, as they do in VS Code.
+test.beforeEach(async ({ page }) => {
+  await routeHostDetails(page);
+});
 
 test('renders visual and text modes and updates zoom', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
@@ -19,6 +32,14 @@ test('reassembles chunked transfers', async ({ page }) => {
   await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
   await expect(page.locator('#loading')).toBeHidden();
 });
+
+for (const transfer of ['binary', 'binary-chunks']) {
+  test(`accepts a document sent as bytes (${transfer})`, async ({ page }) => {
+    await page.goto(`/scripts/webview-harness.html?transfer=${transfer}&mode=text`);
+    await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+    await expect(page.locator('#loading')).toBeHidden();
+  });
+}
 
 test('exports sanitized HTML and invokes print', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?mode=text');
@@ -252,6 +273,62 @@ test('shows which page is on screen, and only where pages exist', async ({ page 
   await expect(indicator).toBeVisible();
 });
 
+test('places each shape of a group where the group says it is', async ({ page }) => {
+  await serveDocument(page, 'group.docx', await groupDocument());
+  await page.goto('/scripts/webview-harness.html?fixture=group.docx');
+  const container = page.locator('#visual-container');
+  const first = await container.getByText('Box A').boundingBox();
+  const second = await container.getByText('Box B').boundingBox();
+
+  // 2,000,000 by 1,000,000 EMU is 157.48pt by 78.74pt, or 210px by 105px at
+  // 100%. Both boxes used to be drawn at the group's origin, on top of each other.
+  expect(second.x - first.x).toBeCloseTo(157.48 * 4 / 3, 0);
+  expect(second.y - first.y).toBeCloseTo(78.74 * 4 / 3, 0);
+});
+
+test('breaks pages where Word last laid them out', async ({ page }) => {
+  await serveDocument(page, 'paginated.docx', await paginatedDocument());
+  await page.goto('/scripts/webview-harness.html?fixture=paginated.docx');
+  const pages = page.locator('#visual-container section.showdocx-visual');
+  await expect(pages).toHaveCount(4);
+  await expect(page.locator('#page-indicator')).toHaveText('1 / 4');
+
+  const texts = await pages.evaluateAll((sections) => sections.map((section) => (
+    [...section.querySelectorAll('article p')].map((paragraph) => paragraph.textContent.trim())
+  )));
+  // A list item split across pages leaves its second half on the next page;
+  // a paragraph Word started a page with moves whole, leaving nothing behind;
+  // a continuous section stays on the page; a new-page section does not.
+  // The empty paragraphs on page three are the document's own: the library
+  // that wrote it ends each section with one, holding its properties.
+  expect(texts).toEqual([
+    ['Page one', 'Item one', 'Item two, first half'],
+    ['second half', 'Item three'],
+    ['Third page starts here', '', 'Continuous section text', ''],
+    ['Fourth page'],
+  ]);
+
+  // The second half keeps the list's indentation but shows no number of its
+  // own, so item three is still numbered 3.
+  const markers = await pages.evaluateAll((sections) => sections.flatMap((section) => (
+    [...section.querySelectorAll('article p')]
+      .filter((paragraph) => [...paragraph.classList].some((name) => name.includes('-num-')))
+      .map((paragraph) => ({
+        text: paragraph.textContent.trim(),
+        marker: getComputedStyle(paragraph, '::before').content !== 'none',
+        indent: paragraph.getBoundingClientRect().left,
+      }))
+  )));
+  expect(markers.map(({ text, marker }) => [text, marker])).toEqual([
+    ['Item one', true],
+    ['Item two, first half', true],
+    ['second half', false],
+    ['Item three', true],
+  ]);
+  const left = Object.fromEntries(markers.map(({ text, indent }) => [text, indent]));
+  expect(left['second half']).toBe(left['Item three']);
+});
+
 test('asks the host which page to go to, so the prompt is the editor s own', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
   await expect(page.locator('#visual-container section')).toBeVisible();
@@ -285,8 +362,12 @@ test('follows a comment to its place in Visual mode only', async ({ page }) => {
   await expect(page.locator('#visual-container section')).toBeVisible();
   await page.locator('#comments-toggle').click();
 
-  // Visual mode renders anchors, so a card can be followed.
-  await expect(page.locator('#comments-list .comment-anchored').first()).toBeVisible();
+  // Visual mode renders anchors, so a card can be followed — each to the
+  // element carrying its own id, rather than to the nth one on the page.
+  await expect(page.locator('#comments-list .comment-anchored')).toHaveCount(3);
+  await expect(page.locator('#visual-container [data-comment-id="0"]')).toHaveCount(1);
+  await expect(page.locator('#visual-container ins[data-revision-id="1"]')).toHaveCount(1);
+  await expect(page.locator('#visual-container del[data-revision-id="2"]')).toHaveCount(1);
 
   await page.locator('#mode-text').click();
   await expect(page.locator('#text-container')).toContainText('Reviewed Document');
@@ -326,14 +407,15 @@ test('shows what the document says about itself', async ({ page }) => {
   await page.locator('#properties-toggle').click();
   await expect(page.locator('#properties-sidebar')).toBeVisible();
 
+  // What simple.docx itself states, read by the host's parser.
   const panel = page.locator('#properties-list');
   await expect(panel).toContainText('ShowDocx sample document');
-  await expect(panel).toContainText('A Reviewer');
+  await expect(panel).toContainText('ShowDocx');
   await expect(panel).toContainText('Revision');
 
   // A date is shown the way the reader's machine writes it, not as stored.
-  await expect(panel).not.toContainText('2026-01-02T03:04:05Z');
   await expect(panel).toContainText('2026');
+  await expect(panel).not.toContainText('T11:30:03');
 
   await page.locator('#properties-close').click();
   await expect(page.locator('#properties-sidebar')).toBeHidden();
@@ -725,6 +807,29 @@ for (const mode of ['text', 'visual']) {
   });
 }
 
+for (const mode of ['visual', 'text']) {
+  test(`highlights the match itself in Turkish text in ${mode} mode`, async ({ page }) => {
+    await serveDocument(page, 'turkish.docx', await turkishDocument());
+    await page.goto(`/scripts/webview-harness.html?fixture=turkish.docx&mode=${mode}`);
+    await expect(page.locator(mode === 'visual' ? '#visual-container' : '#text-container')).toContainText('hedef');
+    const marks = () => page.locator('mark.showdocx-search-match').allTextContents();
+
+    await page.keyboard.press('Control+f');
+    await page.locator('#search-input').fill('hedef');
+    await expect.poll(marks).toEqual(['hedef']);
+
+    await page.locator('#search-input').fill('ab');
+    await expect.poll(marks).toEqual(['ab']);
+
+    // Typed without the dot, the way most keyboards make it easiest.
+    await page.locator('#search-input').fill('istanbul');
+    await expect.poll(marks).toEqual([`${String.fromCharCode(0x130)}STANBUL`]);
+
+    await page.locator('#search-input').fill(`${String.fromCharCode(0x131)}rmak`);
+    await expect.poll(marks).toEqual(['IRMAK']);
+  });
+}
+
 test('does not match text hidden from the reader', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?fixture=with-comments.docx');
   await expect(page.locator('#visual-container section')).toBeVisible();
@@ -821,6 +926,132 @@ test('warns that the text view shows tracked changes as accepted', async ({ page
 
   // The deleted phrase is genuinely absent from the text view — hence the warning.
   await expect(page.locator('#text-container')).not.toContainText('a deleted phrase');
+});
+
+for (const mode of ['visual', 'text']) {
+  test(`decides every link click itself in ${mode} mode, so the webview host opens none`, async ({ page }) => {
+    await serveDocument(page, 'links.docx', await linksDocument());
+    await page.goto(`/scripts/webview-harness.html?fixture=links.docx&mode=${mode}`);
+    const container = page.locator(mode === 'visual' ? '#visual-container' : '#text-container');
+    await expect(container).toContainText('Example site');
+
+    const opened = () => page.evaluate(() => window.__showDocxTest.messages
+      .filter((message) => message.type === 'openExternal')
+      .map((message) => message.href));
+
+    await container.getByText('Example site').click();
+    await container.getByText('Write to us').click();
+    await expect.poll(opened).toEqual(['https://example.com/spec', 'mailto:team@example.com']);
+
+    // Neither of these may be followed: one would hand a URI to another
+    // extension, the other would open a local file.
+    await container.getByText('Clone this repository').click();
+    await container.getByText('Local file').click();
+    await container.getByText('Go to the target').click();
+    await expect(container.getByText('The target paragraph')).toBeInViewport();
+
+    expect(await opened()).toEqual(['https://example.com/spec', 'mailto:team@example.com']);
+    expect(await page.evaluate(() => window.__showDocxTest.hostLinkClicks)).toEqual([]);
+  });
+}
+
+test('keeps no followable href for a link the viewer would refuse', async ({ page }) => {
+  await serveDocument(page, 'links.docx', await linksDocument());
+  await page.goto('/scripts/webview-harness.html?fixture=links.docx');
+  await expect(page.locator('#visual-container')).toContainText('Clone this repository');
+
+  const hrefs = await page.locator('#visual-container a[href]').evaluateAll(
+    (anchors) => anchors.map((anchor) => anchor.getAttribute('href')),
+  );
+  expect(hrefs).toContain('https://example.com/spec');
+  expect(hrefs).toContain('mailto:team@example.com');
+  expect(hrefs.some((href) => /^(vscode|file):/i.test(href))).toBe(false);
+});
+
+test('renders embedded HTML in a sandboxed frame', async ({ page }) => {
+  await serveDocument(page, 'links.docx', await linksDocument());
+  await page.goto('/scripts/webview-harness.html?fixture=links.docx');
+  const frame = page.locator('#visual-container iframe');
+  await expect(frame).toHaveCount(1);
+  await expect(frame).toHaveAttribute('sandbox', '');
+  await expect(page.frameLocator('#visual-container iframe').locator('body'))
+    .toContainText('Embedded HTML chunk');
+});
+
+/**
+ * Replays what the host sends for a document above 1 MB: the document in
+ * chunks, and what the host read out of the package arriving whenever that
+ * reading finished — here, before the last chunk.
+ */
+async function replayChunkedTransfer(page, { transferId, details, detailsTransferId = transferId }) {
+  await page.evaluate(async ({ transferId, details, detailsTransferId }) => {
+    const bytes = new Uint8Array(await (await fetch('/test/fixtures/with-headings.docx')).arrayBuffer());
+    const base64 = (part) => btoa(String.fromCharCode(...part));
+    const send = (data) => window.dispatchEvent(new MessageEvent('message', { data }));
+    const settings = { defaultMode: 'visual', defaultZoom: 100, defaultPageTheme: 'paper', maxFileSizeMb: 100, autoReload: true };
+    const size = 1024;
+    const totalChunks = Math.ceil(bytes.length / size);
+    send({ type: 'documentStart', transferId, fileName: 'with-headings.docx', fileSize: bytes.length, settings, reload: true, totalChunks });
+    send({ type: 'documentDetails', transferId: detailsTransferId, ...details });
+    for (let index = 0; index < totalChunks; index += 1) {
+      send({ type: 'documentChunk', transferId, index, data: base64(bytes.subarray(index * size, (index + 1) * size)) });
+    }
+    send({ type: 'documentEnd', transferId });
+  }, { transferId, details, detailsTransferId });
+}
+
+const replayedDetails = {
+  properties: { title: 'Arrived early', creator: 'The host' },
+  structure: { headingStyles: [{ styleId: 'Heading1', name: 'Heading 1', level: 1 }], comments: [], commentOrder: [], revisions: [] },
+};
+
+test('keeps what the host read even when it arrives before the document', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await replayChunkedTransfer(page, { transferId: 2, details: replayedDetails });
+  await expect(page.locator('#loading')).toBeHidden();
+
+  await page.locator('#properties-toggle').click();
+  await expect(page.locator('#properties-list')).toContainText('Arrived early');
+  await page.locator('#outline-toggle').click();
+  await expect(page.locator('#outline-list .outline-item').first()).toBeVisible();
+});
+
+test('ignores what the host read for a version it no longer shows', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+  await replayChunkedTransfer(page, { transferId: 3, details: replayedDetails });
+  await expect(page.locator('#loading')).toBeHidden();
+
+  // A slow read of an older version finishing last must not replace the facts.
+  await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+    type: 'documentDetails', transferId: 2, properties: { title: 'Stale title' }, structure: undefined,
+  } })));
+  await page.locator('#properties-toggle').click();
+  await expect(page.locator('#properties-list')).toContainText('Arrived early');
+  await expect(page.locator('#properties-list')).not.toContainText('Stale title');
+});
+
+test('says which version a page count is for', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect.poll(() => page.evaluate(() => window.__showDocxTest.messages
+    .filter((message) => message.type === 'documentStats')
+    .map((message) => message.transferId))).toEqual([1]);
+});
+
+test('shows the mode the reader chose when they switch while a render runs', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=large-file.docx');
+  await expect(page.locator('#visual-container section').first()).toBeVisible();
+  await page.evaluate(() => window.__showDocxTest.reload());
+  await page.locator('#mode-text').click();
+  await page.locator('#mode-visual').click();
+  await page.locator('#mode-text').click();
+
+  await expect(page.locator('#loading')).toBeHidden({ timeout: 20_000 });
+  await expect(page.locator('#mode-text')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#text-container')).toBeVisible();
+  await expect(page.locator('#visual-container')).toBeHidden();
 });
 
 test('shows the error state when a chunked transfer loses chunks', async ({ page }) => {

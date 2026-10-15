@@ -2,6 +2,56 @@
 
 All notable changes to ShowDocx are documented in this file.
 
+## [1.2.2] - 2026-10-15
+
+### Security
+
+- **Links in a document are decided by ShowDocx alone.** VS Code's webview host also listens for link clicks, and opened `http`, `https`, `mailto` and `vscode` links itself, whatever ShowDocx decided — so in a restricted workspace a link could still be followed, and in a trusted one an `https` link opened twice. The viewer now stops every link click before the host sees it. Visual mode also drops any `href` that is neither a fragment nor an external link, as Text mode already did, and HTML a document embeds (`altChunk`) is rendered in a sandboxed frame.
+
+- **Mirrors stay inside the workspace, and a repository's own settings cannot move them.** `showDocx.markdownMirrorDirectory` resolved `..`, so a repository's `.vscode/settings.json` could point mirror refreshes at a file outside the workspace. An absolute path or one containing `..` is now refused, and `showDocx.markdownMirror`, `showDocx.markdownMirrorDirectory` and `showDocx.exportLocation` are declared restricted, so Restricted Mode ignores a workspace's values for them. Mirrors are not refreshed at all in a restricted workspace.
+
+- **Only a revision name reaches git as one.** The revision in a comparison's URI went to `git show` unchecked, so a crafted `showdocx-diff:` URI could pass git an option instead. A revision must now start with a letter or digit and hold nothing but what revision names are written with, and is refused before git runs. **Compare with HEAD** also no longer runs git in a restricted workspace, as VS Code's own Git extension does not.
+
+- **The `readDocx` tool follows links before it decides a document is in the workspace.** The boundary was checked on the path as written, so a link inside the workspace to a document outside it was read. Links are now resolved, for the document and for the workspace folders, before the check.
+
+- **Two bundled libraries are updated past new advisories.** `@xmldom/xmldom`, which parses every document's XML through mammoth, goes from 0.8.13 to 0.8.15 (a high-severity advisory: name injection and quadratic-time parsing), and DOMPurify, which sanitizes the Text view, from 3.4.14 to 3.4.17.
+
+### Fixed
+
+- **A Markdown mirror only replaces a file ShowDocx wrote.** Any `.md` with the expected name counted as a mirror, so with `markdownMirror: onChange` a hand-written `guide.md` beside `guide.docx` was overwritten on the document's next change, and **Write Markdown Mirrors** did the same. A file is now a mirror only when its first line says ShowDocx generated it from that document (an empty file still counts, as a request for one). Two documents whose mirrors would be the same file — `x.docx` beside `x.docm`, or two `spec.docx` with a mirror directory set — are both skipped and reported, where the last one used to win silently. The header now names the document by its path in the workspace, so existing mirrors of documents in subfolders change once on their next refresh. ([#62](https://github.com/showdocx/show-docx/issues/62))
+
+- **Search works in Turkish text.** Lowercasing `İ` produces two characters where there was one, so every `İ` before a match moved the highlight one character to the right — searching "hedef" in a line starting "İSTANBUL İZMİR" highlighted "kelim" — and a match could vanish altogether. `istanbul` did not find `İSTANBUL`, nor `ırmak` `IRMAK`. Both searches now fold `I`, `ı`, `İ` and `i` together and map every match back to where it really is; the workspace search's snippets were off by the same amount. ([#63](https://github.com/showdocx/show-docx/issues/63))
+
+- **The comments and changes panel lists what was actually changed.** Word marks an inserted or deleted paragraph mark — splitting or joining paragraphs with tracking on — with a self-closing `<w:ins/>` or `<w:del/>`, and the panel read it as the start of a change: untouched text up to the next revision was listed as deleted or inserted, under the wrong author, and the real change after it disappeared. Text one reviewer inserted and another deleted is now listed as both. Cards follow their own comment or change rather than the nth one on the page, so one annotation rendered differently no longer sends every later card to the wrong place, and an author such as "Smith & Jones" is no longer shown as `Smith &amp; Jones`. ([#64](https://github.com/showdocx/show-docx/issues/64))
+
+- **Text boxes are counted and found once.** Word stores a text box twice — as DrawingML and again as a VML fallback for older readers — and both copies were read, so every word in a text box was counted twice in the status bar and matched twice by the workspace search. The word count also leaves headers and footers out now, as Word's does. ([#69](https://github.com/showdocx/show-docx/issues/69))
+
+- **Properties, outline and comments no longer go blank for a large document.** What ShowDocx reads out of the package is read while the document is being sent, and for a document over 1 MB — sent in chunks — it could arrive first and be cleared the moment the document did. It now says which version it belongs to, and waits for that version; a slow read of an older version that finishes last is ignored rather than replacing the facts of the one on screen. ([#65](https://github.com/showdocx/show-docx/issues/65))
+
+- **Renders no longer overlap.** A reload while a render was running, or an export while switching mode, started a second render into the same page, and the slower, older one could be what stayed on screen. Renders and exports now run one after another, and a render the reader has switched away from no longer takes over the screen when it finishes. ([#71](https://github.com/showdocx/show-docx/issues/71))
+
+- **A document whose name has brackets or braces reloads when it changes.** The file name was used as a glob, so `Rapor [v2].docx` meant "Rapor v.docx or Rapor 2.docx" and `notes{1}.docx` meant something else again: changes to the file itself never arrived, and auto-reload, an open comparison and its mirror silently stayed stale. Such a name is now watched through its folder, and only its own changes are acted on. ([#66](https://github.com/showdocx/show-docx/issues/66))
+
+- **`showDocx.autoReload` applies to documents that are already open.** It was read once, when a document opened, so turning it off left open documents reloading and turning it on left them stale until they were reopened. Turned back on, an open document also catches up on any change it missed while it was off. ([#76](https://github.com/showdocx/show-docx/issues/76))
+
+- **Markdown says what the document says.** The text was written into the Markdown as it was, so a paragraph beginning with "#" became a heading, "2\*3\*4" came out with an italic 3, "List<String>" vanished as an HTML tag and "[draft](notes)" turned into a link. Exports, the clipboard, the `readDocx` tool, `@docx` and mirrors now escape what Markdown would read as syntax — and only that: prose, `file_names`, "2 < 3" and "AT&T" are unchanged. A link whose target has spaces or parentheses is written so it no longer breaks, and code is written literally. Committed mirrors change once, where their documents hold such characters. ([#67](https://github.com/showdocx/show-docx/issues/67))
+
+- **Pages are where Word put them.** Visual mode broke pages only at explicit page and section breaks, so a forty-page document without manual breaks was one long page — the page indicator said "1 / 1" and the status bar "1 page". It now also follows the page beginnings Word records each time it saves. A paragraph Word moved to a new page moves whole instead of leaving an empty copy behind; the second half of a list item split across pages is not numbered again; a continuous section stays on its page, where every section used to start a new one. For a document written by a tool that records no page breaks, the status bar takes the larger of the pages rendered and the count Word stored. ([#68](https://github.com/showdocx/show-docx/issues/68))
+
+- **Shapes in a group are drawn where they belong.** Every shape in a grouped drawing was placed at the group's top-left corner, so a diagram of text boxes and shapes collapsed into one overlapping heap. Each is now positioned and sized from the group's own coordinates, and nested groups are followed to a bounded depth. ([#75](https://github.com/showdocx/show-docx/issues/75))
+
+- **The workspace search keeps to the viewer's size limit.** It read every Word file in the workspace whole, however large, including ones nobody had opened, and kept the text of all of them. A file above `showDocx.maxFileSizeMb` is now skipped without being read, and reported with the unreadable ones; the text kept between searches is bounded, dropping what was searched least recently. ([#70](https://github.com/showdocx/show-docx/issues/70))
+
+- **Extract Images asks before replacing a file.** Extracting a document twice, or two documents with the same name, into one folder silently overwrote the images already there. When a name is taken it now offers to replace them or to keep both, giving the new images numbered names. ([#72](https://github.com/showdocx/show-docx/issues/72))
+
+### Changed
+
+- **The tests hold the viewer to the real thing.** Every suite passed while each of the problems above was present, so the gaps were closed rather than only the bugs. The webview harness runs under the webview's own Content Security Policy, stands in for VS Code's own link handling, and is checked to match the real webview's policy and markup; it is given a document's details by the host's own parser instead of a description written by hand. Two Extension Host tests open documents in a real webview and wait for them to render. A separate run opens the workspace untrusted, which `@vscode/test-electron` never does, to test Restricted Mode, and CI also runs the Extension Host tests on VS Code 1.85.0, the oldest release `engines` allows. A webview test that only passes on retry now fails the CI run. ([#74](https://github.com/showdocx/show-docx/issues/74))
+
+- **Less work to open a document.** The document reaches the viewer as bytes rather than base64 — a third less to send, and nothing to encode or decode — and the extension host unzips it once, where it used to unzip it three times to read its properties, structure and word count. Text mode checks for tracked changes alongside the conversion instead of before it, and the in-document search maps its matches in one pass over the page rather than comparing every match with every piece of text on each keystroke. ([#73](https://github.com/showdocx/show-docx/issues/73))
+
+- **The workflows pin every action to a commit.** The release workflow can write to the repository and its releases, and ran actions by tag, which can be moved. Every action is now pinned to a full commit hash, Dependabot keeps the pins current, and checkout no longer leaves the token in the git configuration. ([#77](https://github.com/showdocx/show-docx/issues/77))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

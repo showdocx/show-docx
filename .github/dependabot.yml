@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # The workflows pin every action to a commit, so a moved tag cannot change
+  # what runs with write access. This keeps those pins current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

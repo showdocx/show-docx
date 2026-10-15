@@ -24,6 +24,8 @@ export interface DocumentComment {
 /** A tracked insertion or deletion the document records. */
 export interface DocumentRevision {
   type: 'insertion' | 'deletion';
+  /** The revision's `w:id`, which docx-preview writes onto its element. */
+  id?: string;
   author: string;
   date?: string;
   text: string;
@@ -72,6 +74,14 @@ export interface DocumentProperties {
   template?: string;
   company?: string;
   pages?: number;
+}
+
+/** What the host read out of the package for one transfer. */
+export interface DocumentDetails {
+  /** The transfer it was read for; absent from a host that does not say. */
+  transferId?: number;
+  properties?: DocumentProperties;
+  structure?: DocumentStructure;
 }
 
 export interface ViewerSettings {
@@ -144,7 +154,8 @@ export interface IncomingMessage {
   page?: number;
   structure?: DocumentStructure;
   reload?: boolean;
-  data?: string;
+  /** The document bytes: binary from VS Code, base64 from an older host or a test. */
+  data?: string | Uint8Array | ArrayBuffer;
   index?: number;
   totalChunks?: number;
   message?: string;

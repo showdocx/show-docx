@@ -15,6 +15,7 @@ import { SearchController } from './search';
 import { StateManager } from './stateManager';
 import { Toolbar } from './toolbar';
 import type {
+  DocumentDetails,
   DocumentMeta,
   IncomingMessage,
   PageTheme,
@@ -68,6 +69,19 @@ let chunkTransfer: {
 } | undefined;
 let scrollTimer: number | undefined;
 let transferWatchdog: number | undefined;
+/**
+ * What the host read out of the package, held until the document it belongs to
+ * has arrived. The host reads it while the document is still being sent, so for
+ * a large document it can land first — and accepting the document clears it.
+ */
+let pendingDetails: DocumentDetails | undefined;
+/**
+ * The tail of the render queue. docx-preview clears the container it renders
+ * into and fills it later, so two renders at once — a reload while one is still
+ * running, an export while switching mode — could leave the slower, older one
+ * on screen. Every render waits for the one before it.
+ */
+let renderQueue: Promise<unknown> = Promise.resolve();
 
 /** A chunked transfer that makes no progress for this long is treated as failed. */
 const TRANSFER_TIMEOUT_MS = 30_000;
@@ -203,21 +217,31 @@ viewport.addEventListener('scroll', () => {
   }, 120);
 });
 
-viewport.addEventListener('click', (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) {
+/**
+ * Every link click is decided here, and nowhere else.
+ *
+ * VS Code's own webview host listens for clicks on the window too, ignores
+ * preventDefault, and opens http, https, mailto and vscode links itself —
+ * without asking whether the workspace is trusted. So a click is stopped in
+ * the capture phase, before it can reach that listener, and only then does
+ * ShowDocx choose what to do with it: scroll to a fragment, ask the host to
+ * open an external link, or nothing at all.
+ */
+window.addEventListener('click', (event) => {
+  const anchor = findLink(event);
+  if (!anchor) {
     return;
   }
-  const anchor = target.closest('a');
-  const href = anchor?.getAttribute('href');
-  if (!href || href.startsWith('#')) {
-    return;
-  }
-  if (/^(https?:|mailto:)/i.test(href)) {
-    event.preventDefault();
+  event.preventDefault();
+  event.stopPropagation();
+
+  const href = linkTarget(anchor);
+  if (href.startsWith('#')) {
+    scrollToFragment(href.slice(1));
+  } else if (isExternalLink(href)) {
     vscode.postMessage({ type: 'openExternal', href });
   }
-});
+}, true);
 
 getButton('retry-button').addEventListener('click', () => {
   showLoading('Reloading document...', 10);
@@ -233,7 +257,7 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
         const meta = readDocumentMeta(message);
         // A single-message document supersedes any transfer still in flight.
         clearTransfer();
-        await acceptDocument(decodeBase64(message.data), meta);
+        await acceptDocument(toBytes(message.data), meta);
       }
       break;
     case 'documentStart': {
@@ -296,9 +320,11 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
       applyPageTheme(state.nextPageTheme());
       break;
     case 'documentDetails':
-      properties.update(message.properties);
-      outline.setHeadingStyles(message.structure?.headingStyles ?? []);
-      comments.setStructure(message.structure);
+      receiveDetails({
+        transferId: message.transferId,
+        properties: message.properties,
+        structure: message.structure,
+      });
       break;
     case 'showProperties':
       properties.open();
@@ -344,7 +370,7 @@ function receiveChunk(message: IncomingMessage): void {
     return;
   }
 
-  chunkTransfer.chunks[message.index] = decodeBase64(message.data);
+  chunkTransfer.chunks[message.index] = toBytes(message.data);
   armTransferWatchdog();
   const received = chunkTransfer.chunks.filter(Boolean).length;
   const percent = 5 + Math.round((received / chunkTransfer.totalChunks) * 45);
@@ -395,8 +421,33 @@ function reportPageCount(): void {
   }
   const pages = visualContainer.querySelectorAll('section').length;
   if (pages > 0) {
-    vscode.postMessage({ type: 'documentStats', pages });
+    vscode.postMessage({ type: 'documentStats', pages, transferId: currentMeta?.transferId });
   }
+}
+
+function receiveDetails(details: DocumentDetails): void {
+  if (details.transferId === undefined || details.transferId === currentMeta?.transferId) {
+    applyDetails(details);
+    return;
+  }
+  // Transfers only ever count up: a later one is the document still on its
+  // way, an earlier one belongs to a version this view no longer shows.
+  if (details.transferId > (currentMeta?.transferId ?? 0)) {
+    pendingDetails = details;
+  }
+}
+
+function applyDetails(details: DocumentDetails): void {
+  properties.update(details.properties);
+  outline.setHeadingStyles(details.structure?.headingStyles ?? []);
+  comments.setStructure(details.structure);
+}
+
+/** Runs a task once every render queued before it has finished. */
+function serialized<T>(task: () => Promise<T>): Promise<T> {
+  const run = renderQueue.then(task, task);
+  renderQueue = run.catch(() => undefined);
+  return run;
 }
 
 function applyPageTheme(theme: PageTheme): void {
@@ -410,7 +461,7 @@ async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<vo
   state.applyInitialState(settings, meta.savedState);
   applyPageTheme(state.value.pageTheme);
   currentMeta = meta;
-  // decodeBase64 and joinChunks both hand over a Uint8Array that owns its whole
+  // toBytes and joinChunks normally hand over a Uint8Array that owns its whole
   // buffer, so the common path needs no copy at all. Copy only a partial view.
   currentBuffer = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
     ? bytes.buffer as ArrayBuffer
@@ -432,6 +483,12 @@ async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<vo
   properties.update(undefined);
   outline.setHeadingStyles([]);
   comments.setStructure(undefined);
+  if (pendingDetails && pendingDetails.transferId === meta.transferId) {
+    applyDetails(pendingDetails);
+  }
+  if (pendingDetails && (pendingDetails.transferId ?? 0) <= meta.transferId) {
+    pendingDetails = undefined;
+  }
   zoom.apply();
   showLoading(meta.reload ? 'Document changed. Rendering again...' : 'Rendering document...', 55);
   await renderMode(state.value.mode);
@@ -448,7 +505,11 @@ async function switchMode(mode: RenderMode): Promise<void> {
   search.refresh();
 }
 
-async function renderMode(mode: RenderMode): Promise<void> {
+function renderMode(mode: RenderMode): Promise<void> {
+  return serialized(() => renderModeNow(mode));
+}
+
+async function renderModeNow(mode: RenderMode): Promise<void> {
   if (!currentBuffer) {
     return;
   }
@@ -493,6 +554,11 @@ async function renderMode(mode: RenderMode): Promise<void> {
         return;
       }
       textRendered = true;
+    }
+    if (state.value.mode !== mode) {
+      // The reader switched while this rendered. The render for the mode they
+      // chose is queued behind this one and will show it.
+      return;
     }
 
     visualContainer.classList.toggle('hidden', mode !== 'visual');
@@ -549,6 +615,11 @@ async function renderVisual(arrayBuffer: ArrayBuffer): Promise<void> {
     useBase64URL: true,
     trimXmlDeclaration: true,
     experimental: true,
+    // Follow the page breaks Word recorded when it last laid the document out,
+    // so a page here is a page there. The patched docx-preview moves a paragraph
+    // that starts a page instead of leaving an empty copy behind, and does not
+    // number the second half of a split list item again.
+    ignoreLastRenderedPageBreak: false,
   };
 
   try {
@@ -576,6 +647,83 @@ async function renderVisual(arrayBuffer: ArrayBuffer): Promise<void> {
       throw new Error(`[Attempt 1]: ${firstMsg}\n[Attempt 2]: ${secondMsg}`);
     }
   }
+  // The second half of a paragraph split across pages keeps its list's
+  // indentation but is not a new item: no marker, and no step of the counter.
+  // Kept beside docx-preview's own styles so the printable export carries it.
+  const continuation = document.createElement('style');
+  continuation.textContent = `.${options.className}-continuation::before { content: none !important; }
+.${options.className}-continuation { list-style-type: none !important; }`;
+  styleEl.appendChild(continuation);
+
+  // docx-preview copies a hyperlink's target into href exactly as the document
+  // states it. Text mode is sanitized by DOMPurify; this is the same rule for
+  // the page layout, so a link that could never be followed does not look as
+  // though it could.
+  neutralizeLinks(visualContainer);
+}
+
+const EXTERNAL_LINK = /^(?:https?|mailto):/i;
+
+function isExternalLink(href: string): boolean {
+  return EXTERNAL_LINK.test(href);
+}
+
+/**
+ * The link a click landed on, if any — HTML or SVG, at any depth. An empty
+ * href still counts: the browser resolves it to the page itself, and VS Code's
+ * listener would act on that.
+ */
+function findLink(event: MouseEvent): Element | undefined {
+  for (const node of event.composedPath()) {
+    if (
+      node instanceof Element
+      && node.localName === 'a'
+      && (node.hasAttribute('href') || node.hasAttribute('xlink:href'))
+    ) {
+      return node;
+    }
+  }
+  return undefined;
+}
+
+function linkTarget(anchor: Element): string {
+  return (anchor.getAttribute('href') ?? anchor.getAttribute('xlink:href') ?? '').trim();
+}
+
+/**
+ * Follows a link within the document: a bookmark, a footnote, a table of
+ * contents entry. Looked up in the mode on screen, because the other one may
+ * hold an element with the same id while it is hidden.
+ */
+function scrollToFragment(fragment: string): void {
+  let decoded = fragment;
+  try {
+    decoded = decodeURIComponent(fragment);
+  } catch {
+    // Not percent-encoded after all; the raw fragment is the id.
+  }
+  const container = getActiveContainer();
+  for (const id of new Set([fragment, decoded])) {
+    if (id === '') {
+      continue;
+    }
+    const escaped = CSS.escape(id);
+    const target = container.querySelector(`#${escaped}, a[name="${escaped}"]`);
+    if (target) {
+      target.scrollIntoView({ block: 'start' });
+      return;
+    }
+  }
+}
+
+/** Removes every href that is neither a fragment nor an external link. */
+function neutralizeLinks(container: HTMLElement): void {
+  for (const anchor of container.querySelectorAll('a[href]')) {
+    const href = linkTarget(anchor);
+    if (!href.startsWith('#') && !isExternalLink(href)) {
+      anchor.removeAttribute('href');
+    }
+  }
 }
 
 async function renderText(arrayBuffer: ArrayBuffer): Promise<void> {
@@ -594,9 +742,12 @@ async function renderText(arrayBuffer: ArrayBuffer): Promise<void> {
   // mammoth drops w:del runs and inlines w:ins runs without reporting either, so
   // the text view silently differs from the visual view. Detect the markup here
   // and say so rather than letting the content change without explanation.
-  const trackedChanges = await hasTrackedChanges(arrayBuffer);
-
-  const result = await mammoth.convertToHtml({ arrayBuffer }, options);
+  // The check reads the package on its own, so it runs alongside the
+  // conversion rather than before it.
+  const [trackedChanges, result] = await Promise.all([
+    hasTrackedChanges(arrayBuffer),
+    mammoth.convertToHtml({ arrayBuffer }, options),
+  ]);
   exportedTextHtml = DOMPurify.sanitize(result.value, {
     USE_PROFILES: { html: true },
   });
@@ -626,15 +777,24 @@ async function hasTrackedChanges(arrayBuffer: ArrayBuffer): Promise<boolean> {
   }
 }
 
-async function exportHtml(): Promise<void> {
+function exportHtml(): Promise<void> {
+  return serialized(exportHtmlNow);
+}
+
+async function exportHtmlNow(): Promise<void> {
   if (!currentBuffer || !currentMeta) {
     return;
   }
+  const generation = renderGeneration;
   toolbar.setBusy(true);
   try {
     if (!textRendered) {
       showLoading('Preparing semantic HTML...', 75);
       await renderText(currentBuffer);
+      if (generation !== renderGeneration) {
+        // A newer version arrived meanwhile; its own render is queued.
+        return;
+      }
       textRendered = true;
       showContent();
     }
@@ -662,15 +822,23 @@ function askHostFor(type: 'exportMarkdown' | 'copyMarkdown' | 'copyText'): void 
   vscode.postMessage({ type });
 }
 
-async function exportPdf(): Promise<void> {
+function exportPdf(): Promise<void> {
+  return serialized(exportPdfNow);
+}
+
+async function exportPdfNow(): Promise<void> {
   if (!currentBuffer || !currentMeta) {
     return;
   }
   const buffer = currentBuffer;
   const meta = currentMeta;
+  const generation = renderGeneration;
   toolbar.setBusy(true);
   try {
-    const html = await buildPrintableDocument(buffer, meta);
+    const html = await buildPrintableDocument(buffer, meta, generation);
+    if (generation !== renderGeneration) {
+      return;
+    }
     showContent();
     vscode.postMessage({ type: 'exportPdf', html });
   } catch (error: unknown) {
@@ -688,8 +856,9 @@ async function exportPdf(): Promise<void> {
 async function buildPrintableDocument(
   buffer: ArrayBuffer,
   meta: DocumentMeta,
+  generation: number,
 ): Promise<string> {
-  if (await ensureVisualRendered(buffer)) {
+  if (await ensureVisualRendered(buffer, generation)) {
     const body = collectVisualBody();
     if (body) {
       return createPrintDocument(meta.fileName, collectVisualStyles(), body);
@@ -699,7 +868,9 @@ async function buildPrintableDocument(
   if (!textRendered) {
     showLoading('Preparing document for PDF...', 75);
     await renderText(buffer);
-    textRendered = true;
+    if (generation === renderGeneration) {
+      textRendered = true;
+    }
   }
   return createExportDocument(meta.fileName, exportedTextHtml);
 }
@@ -710,7 +881,7 @@ async function buildPrintableDocument(
  * renders, so it has to be attached and visible even though Text mode is what
  * stays on screen afterwards.
  */
-async function ensureVisualRendered(buffer: ArrayBuffer): Promise<boolean> {
+async function ensureVisualRendered(buffer: ArrayBuffer, generation: number): Promise<boolean> {
   if (visualRendered) {
     return true;
   }
@@ -724,10 +895,15 @@ async function ensureVisualRendered(buffer: ArrayBuffer): Promise<boolean> {
   visualContainer.classList.remove('hidden');
   try {
     await renderVisual(buffer);
-    visualRendered = true;
+    if (generation === renderGeneration) {
+      visualRendered = true;
+    }
     return true;
   } catch (error: unknown) {
     console.warn('ShowDocx could not render the page layout for export:', error);
+    if (generation !== renderGeneration) {
+      return false;
+    }
     visualFailed = true;
     visualContainer.replaceChildren();
     return false;
@@ -800,6 +976,17 @@ function readDocumentMeta(message: IncomingMessage): DocumentMeta {
     savedState: message.savedState,
     reload: message.reload ?? false,
   };
+}
+
+/**
+ * The document bytes as they arrived. VS Code delivers a Uint8Array, with no
+ * encoding in between; base64 is still read, from a host or test that sends it.
+ */
+function toBytes(value: string | Uint8Array | ArrayBuffer): Uint8Array {
+  if (typeof value === 'string') {
+    return decodeBase64(value);
+  }
+  return value instanceof Uint8Array ? value : new Uint8Array(value);
 }
 
 function decodeBase64(value: string): Uint8Array {

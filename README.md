@@ -30,7 +30,7 @@ VS Code cannot open a Word document, and git cannot diff one. ShowDocx answers b
 
 ### Reading
 
-- **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes and page sizing — with `docx-preview`. Pages break where the document declares them; nothing is repaginated.
+- **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes and page sizing — with `docx-preview`. Pages break where the document declares them and where Word last laid them out; nothing is repaginated.
 - **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
 - **Page themes** — paper, sepia or dark. Most VS Code users run a dark theme, and an 80-page white page does not have to be the only option.
 - **Fit to width, fit to page**, held against the panel as you resize it, plus zoom from 25% to 400% by toolbar, keyboard or `Ctrl/Cmd` + wheel.
@@ -89,9 +89,9 @@ The API that would put these results in VS Code's own search panel is still prop
 
 Comparing revisions inside the editor is one problem; `git diff` in a terminal and a pull request on GitHub are another, and both see a Word document as `Binary files differ`. **ShowDocx: Write Markdown Mirrors** writes a `.md` copy of each document, meant to be committed alongside it, so those tools can read what changed.
 
-ShowDocx **never creates a mirror on its own.** Creating them is the command above, which says how many and where before writing anything. Setting `showDocx.markdownMirror` to `onChange` keeps mirrors that already exist up to date when their documents change; it will not add new files. `showDocx.markdownMirrorDirectory` puts them somewhere other than beside the document.
+ShowDocx **never creates a mirror on its own.** Creating them is the command above, which says how many and where before writing anything. Setting `showDocx.markdownMirror` to `onChange` keeps mirrors that already exist up to date when their documents change; it will not add new files. `showDocx.markdownMirrorDirectory` puts them somewhere other than beside the document, inside the workspace folder.
 
-Each mirror opens with a comment naming the document it came from, so nobody meeting one in a review has to guess.
+Each mirror opens with a comment naming the document it came from, so nobody meeting one in a review has to guess — and ShowDocx only ever replaces a file that opens with that comment. A hand-written `guide.md` beside `guide.docx` is left alone, and two documents whose mirrors would share a name are both skipped rather than overwriting each other. An empty `.md` file counts as a request for a mirror. In a restricted workspace mirrors are not refreshed, and the workspace's own mirror and export settings are ignored.
 
 ### Comparing revisions
 
@@ -107,7 +107,7 @@ An AI agent running in your editor cannot read a `.docx`: opening one returns a 
 
 **ShowDocx calls no model.** Your own agent, on your own subscription, asks this extension for text it already knows how to produce. There is no API key, no cost and no outbound request — the privacy guarantee below holds exactly as written.
 
-Only documents inside the open workspace can be read, and only `.docx` files. A model's arguments can be steered by whatever it has read, so the tool treats a path as a request rather than a permission.
+Only Word documents (`.docx`, `.docm`, `.dotx`, `.dotm`) inside the open workspace can be read, and a link that leads outside the workspace is not followed. A model's arguments can be steered by whatever it has read, so the tool treats a path as a request rather than a permission.
 
 The tool needs VS Code 1.95 or later. ShowDocx still declares support from 1.85, detects the API at runtime, and simply does not register the tool where it is absent.
 
@@ -210,7 +210,7 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 - Search matches at most 2000 results per query, shown as `2000+`. Workspace search shows at most 300 matches, and at most 20 per document.
 - Table of contents, bookmarks, advanced Word fields, and some hyperlinks are limited by the open-source rendering engines.
 - Visual mode prioritizes page fidelity, but highly complex Word layouts may differ from Microsoft Word.
-- Pages break where the document declares them; ShowDocx does not repaginate, so the page count can differ from what Word reports for the same file.
+- Pages break where the document declares them and where Word recorded a page beginning when it last saved the file. ShowDocx does not repaginate, so a document saved by a tool that records no page breaks shows its explicit breaks only; the status bar then takes the page count Word stored, when there is one.
 - HTML export is semantic and intentionally does not reproduce the exact page layout; the PDF export does.
 - If Visual mode cannot render a document at all, the PDF export falls back to the semantic text view rather than failing.
 - Comparing revisions covers `HEAD` and local files. Comparing two selected documents, arbitrary revisions, and following a rename are not implemented yet.

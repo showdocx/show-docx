@@ -84,4 +84,48 @@ describe('DocxDocument', () => {
     assert.equal(reads, 2);
     document.dispose();
   });
+
+  it('stops and starts watching while it is open, as the setting changes', () => {
+    let watches = 0;
+    let disposals = 0;
+    const host: DocxDocumentHost = {
+      readFile: async () => Uint8Array.from([1]),
+      watch: () => {
+        watches += 1;
+        return { dispose: () => { disposals += 1; } };
+      },
+    };
+    const uri = { toString: () => 'file:///sample.docx' } as vscode.Uri;
+    const document = new DocxDocument(uri, Uint8Array.from([1]), host);
+
+    document.startWatching();
+    assert.equal(document.watching, true);
+    document.stopWatching();
+    assert.equal(document.watching, false);
+    assert.equal(disposals, 1);
+    document.startWatching();
+    assert.equal(watches, 2);
+    document.dispose();
+    assert.equal(disposals, 2);
+  });
+
+  it('reports nothing when asked to catch up and nothing changed', async () => {
+    let contents = Uint8Array.from([1, 2, 3]);
+    const host: DocxDocumentHost = {
+      readFile: async () => contents,
+      watch: () => ({ dispose: () => undefined }),
+    };
+    const uri = { toString: () => 'file:///sample.docx' } as vscode.Uri;
+    const document = new DocxDocument(uri, Uint8Array.from([1, 2, 3]), host);
+    const changes: number[][] = [];
+    document.onDidChange((data) => changes.push([...data]));
+
+    await document.reload({ onlyIfChanged: true });
+    assert.deepEqual(changes, []);
+
+    contents = Uint8Array.from([4]);
+    await document.reload({ onlyIfChanged: true });
+    assert.deepEqual(changes, [[4]]);
+    document.dispose();
+  });
 });

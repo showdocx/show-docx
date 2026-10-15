@@ -17,6 +17,12 @@
  * - images collapse to a digest of their bytes, because the base64 mammoth
  *   inlines is megabytes of churn no reader can compare;
  * - runs of whitespace collapse, because Word moves them around freely.
+ *
+ * What the document says is written as text, never as syntax: a paragraph
+ * that begins with "#" is not a heading, "2*3*4" has no italics, and
+ * "List<String>" is not an HTML tag. Escapes are added only where a character
+ * could be read as Markdown, so ordinary prose, file_names and "2 < 3" stay as
+ * they are.
  */
 
 import { fingerprintText } from './fingerprint';
@@ -353,7 +359,7 @@ function renderBlocks(
 function renderBlock(node: ElementNode, writer: LineWriter, context: RenderContext): void {
   const level = HEADING_LEVELS[node.name];
   if (level !== undefined) {
-    const heading = normalizeInline(renderInline(node.children).replaceAll('\n', ' '));
+    const heading = escapeClosingHashes(normalizeInline(renderInline(node.children).replaceAll('\n', ' ')));
     if (heading !== '') {
       writer.blank(context);
       writer.push(`${context.quote}${context.indent}${'#'.repeat(level)} ${heading}`);
@@ -393,7 +399,7 @@ function writeParagraph(inline: string, writer: LineWriter, context: RenderConte
   }
   writer.blank(context);
   for (const line of lines) {
-    writer.push(`${context.quote}${context.indent}${line}`);
+    writer.push(`${context.quote}${context.indent}${escapeLineStart(line)}`);
   }
   writer.blank(context);
 }
@@ -439,7 +445,7 @@ function renderListItem(
     // mammoth writes <li><p>text</p></li> when the item holds a styled paragraph.
     text = normalizeInline(renderInline(blocks.shift()?.children ?? []).replaceAll('\n', ' '));
   }
-  writer.push(`${context.quote}${context.indent}${marker} ${text}`);
+  writer.push(`${context.quote}${context.indent}${marker} ${escapeLineStart(text)}`);
 
   if (blocks.length > 0) {
     renderBlocks(blocks, writer, { ...context, indent: `${context.indent}  ` });
@@ -516,11 +522,18 @@ function formatRow(cells: readonly string[], columns: number, fill = ''): string
   return `| ${padded.join(' | ')} |`;
 }
 
-function renderInline(nodes: readonly DocumentNode[]): string {
+interface InlineContext {
+  /** Inside a link's own text, where any bracket would end it early. */
+  readonly linkText: boolean;
+}
+
+const PLAIN_TEXT: InlineContext = { linkText: false };
+
+function renderInline(nodes: readonly DocumentNode[], context: InlineContext = PLAIN_TEXT): string {
   let output = '';
   for (const node of nodes) {
     if (node.type === 'text') {
-      output += node.value.replaceAll(/\s+/g, ' ');
+      output += escapeInline(node.value.replaceAll(/\s+/g, ' '), context);
       continue;
     }
     switch (node.name) {
@@ -529,42 +542,160 @@ function renderInline(nodes: readonly DocumentNode[]): string {
         break;
       case 'b':
       case 'strong':
-        output += emphasize(renderInline(node.children), '**');
+        output += emphasize(renderInline(node.children, context), '**');
         break;
       case 'em':
       case 'i':
-        output += emphasize(renderInline(node.children), '*');
+        output += emphasize(renderInline(node.children, context), '*');
         break;
       case 'del':
       case 's':
       case 'strike':
-        output += emphasize(renderInline(node.children), '~~');
+        output += emphasize(renderInline(node.children, context), '~~');
         break;
       case 'code':
-        output += emphasize(renderInline(node.children), '`');
+        output += renderCode(node);
         break;
       case 'a':
-        output += renderAnchor(node);
+        // A link inside a link's text cannot be written; its text still can.
+        output += context.linkText ? renderInline(node.children, context) : renderAnchor(node);
         break;
       case 'img':
         output += renderImage(node);
         break;
       default:
-        output += renderInline(node.children);
+        output += renderInline(node.children, context);
     }
   }
   return output;
 }
 
 function renderAnchor(node: ElementNode): string {
-  const text = renderInline(node.children);
   const href = node.attributes.href ?? '';
   // Footnote and bookmark links point back into the document, at an identifier
   // mammoth generated. Showing it would be noise.
   if (href === '' || href.startsWith('#')) {
+    return renderInline(node.children);
+  }
+  return `[${renderInline(node.children, { linkText: true })}](${linkDestination(href)})`;
+}
+
+/**
+ * A link target as Markdown accepts it. A space or a parenthesis would end the
+ * link early, so such a target is written in angle brackets, the form
+ * CommonMark keeps for exactly that.
+ */
+function linkDestination(href: string): string {
+  if (!/[\s<>()]/.test(href)) {
+    return href;
+  }
+  return `<${href.replaceAll('<', '%3C').replaceAll('>', '%3E')}>`;
+}
+
+/** Code is literal: no escapes inside, and a fence longer than any run of backticks in it. */
+function renderCode(node: ElementNode): string {
+  const text = textOf(node).replaceAll(/\s+/g, ' ');
+  if (text.trim() === '') {
     return text;
   }
-  return `[${text}](${href})`;
+  const runs = [...text.matchAll(/`+/g)].map((run) => run[0].length);
+  const fence = '`'.repeat(Math.max(0, ...runs) + 1);
+  const padding = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return `${fence}${padding}${text}${padding}${fence}`;
+}
+
+function textOf(node: DocumentNode): string {
+  return node.type === 'text' ? node.value : node.children.map(textOf).join('');
+}
+
+/**
+ * Escapes what Markdown could read as syntax in a run of document text,
+ * wherever it stands. Each rule escapes as little as it can:
+ *
+ * - `*`, a backtick and `~` always: each can open emphasis, code or a
+ *   strikethrough anywhere, even inside a word;
+ * - `_` only at the edge of a word, because inside one it never means
+ *   emphasis, and file_names stay readable;
+ * - `]` only where a link could follow, before `(` or `[`, and both brackets
+ *   anywhere in a link's own text;
+ * - `<` only where it could open a tag or an autolink, so "2 < 3" is left be;
+ * - `&` only where it could start an entity;
+ * - a backslash only before punctuation, the one place it escapes anything.
+ */
+function escapeInline(text: string, context: InlineContext): string {
+  let output = '';
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text.charAt(index);
+    if (needsEscape(text, index, context)) {
+      output += BACKSLASH;
+    }
+    output += character;
+  }
+  return output;
+}
+
+const BACKSLASH = String.fromCharCode(0x5c);
+const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/;
+const ENTITY = /^&(?:#\d{1,7}|#[xX][\da-fA-F]{1,6}|[A-Za-z][A-Za-z\d]{0,31});/;
+
+function needsEscape(text: string, index: number, context: InlineContext): boolean {
+  const character = text.charAt(index);
+  const previous = text.charAt(index - 1);
+  const next = text.charAt(index + 1);
+  switch (character) {
+    case '*':
+    case '`':
+    case '~':
+      return true;
+    case '_':
+      return !(isWordCharacter(previous) && isWordCharacter(next));
+    case '[':
+      return context.linkText;
+    case ']':
+      return context.linkText || next === '(' || next === '[';
+    case '<':
+      return /[A-Za-z/!?]/.test(next);
+    case '&':
+      return ENTITY.test(text.slice(index, index + 40));
+    case BACKSLASH:
+      return ASCII_PUNCTUATION.test(next);
+    default:
+      return false;
+  }
+}
+
+function isWordCharacter(character: string): boolean {
+  return /[\p{L}\p{N}]/u.test(character);
+}
+
+/**
+ * Escapes what would make a line a block of its own: a heading, a quote, a
+ * list item, a rule, a setext underline or a reference definition.
+ */
+const BLOCK_STARTS = [
+  /^#{1,6}(?:\s|$)/,
+  /^>/,
+  /^[-+](?:\s|$)/,
+  /^(?:-[ \t]*){3,}$/,
+  /^-+[ \t]*$/,
+  /^=+[ \t]*$/,
+  /^\[[^\]]*\]:/,
+];
+
+function escapeLineStart(line: string): string {
+  if (BLOCK_STARTS.some((pattern) => pattern.test(line))) {
+    return `${BACKSLASH}${line}`;
+  }
+  const ordered = /^(\d{1,9})([.)])(?:\s|$)/.exec(line);
+  if (ordered?.[1]) {
+    return `${ordered[1]}${BACKSLASH}${line.slice(ordered[1].length)}`;
+  }
+  return line;
+}
+
+/** A heading ending in " #" would lose it: CommonMark reads that as a closing sequence. */
+function escapeClosingHashes(heading: string): string {
+  return heading.replace(/(\s)(#+)$/, (_match, space: string, hashes: string) => `${space}${BACKSLASH}${hashes}`);
 }
 
 /** The longest source kept verbatim, above which it is reduced to a digest. */
@@ -573,7 +704,7 @@ const READABLE_SOURCE_LENGTH = 64;
 function renderImage(node: ElementNode): string {
   const alt = node.attributes.alt?.trim() ?? '';
   const source = node.attributes.src ?? '';
-  const label = alt === '' ? 'image' : alt;
+  const label = alt === '' ? 'image' : alt.replaceAll(/[[\]\\]/g, (bracket) => `${BACKSLASH}${bracket}`);
   if (source === '') {
     return `![${label}]`;
   }

@@ -60,6 +60,28 @@ describe('Reading a document as searchable lines', () => {
     assert.equal(xmlToLines(xml), 'Kept');
   });
 
+  it('reads a text box once, not once per copy Word stores of it', () => {
+    // Word writes a text box as DrawingML and again, as a fallback for older
+    // readers, as VML. Both copies hold the whole text.
+    const box = `<w:txbxContent>${paragraph('Box text')}</w:txbxContent>`;
+    const xml = `${paragraph('Before')}<w:p><w:r><mc:AlternateContent>`
+      + `<mc:Choice Requires="wps"><w:drawing><wps:txbx>${box}</wps:txbx></w:drawing></mc:Choice>`
+      + `<mc:Fallback><w:pict><v:textbox>${box}</v:textbox></w:pict></mc:Fallback>`
+      + `</mc:AlternateContent></w:r></w:p>${paragraph('After')}`;
+    assert.equal(xmlToLines(xml), 'Before\nBox text\nAfter');
+  });
+
+  it('drops a fallback that holds a fallback of its own', () => {
+    const inner = '<mc:AlternateContent><mc:Choice>inner choice</mc:Choice><mc:Fallback>inner copy</mc:Fallback></mc:AlternateContent>';
+    const xml = `<w:p><w:r><w:t>Kept</w:t></w:r></w:p><mc:Fallback>${inner}outer copy</mc:Fallback><w:p><w:r><w:t>Also kept</w:t></w:r></w:p>`;
+    assert.equal(xmlToLines(xml), 'Kept\nAlso kept');
+  });
+
+  it('drops an empty field code without swallowing what follows it', () => {
+    const xml = `<w:p><w:r><w:instrText/></w:r><w:r><w:t>Visible</w:t></w:r><w:r><w:instrText> PAGE </w:instrText></w:r></w:p>`;
+    assert.equal(xmlToLines(xml), 'Visible');
+  });
+
   it('drops empty paragraphs and collapses whitespace', () => {
     assert.equal(
       xmlToLines(`${paragraph('  spaced   out  ')}<w:p/>${paragraph('next')}`),
@@ -104,6 +126,15 @@ describe('Reading a real document', () => {
     assert.ok(text.includes('ShowDocx fixture'), text);
   });
 
+  it('leaves headers and footers out when asked, as a word count does', async () => {
+    const data = new Uint8Array(await readFile(path.join(FIXTURES, 'with-tables.docx')));
+
+    const text = await extractSearchText(data, { headersAndFooters: false });
+
+    assert.ok(!text.includes('ShowDocx fixture'), text);
+    assert.ok(text.includes('Page layout'), text);
+  });
+
   it('reads the body before anything else, so line numbers are stable', async () => {
     const data = new Uint8Array(await readFile(path.join(FIXTURES, 'with-tables.docx')));
 
@@ -139,6 +170,13 @@ describe('Finding matches in a document', () => {
 
   it('ignores case', () => {
     assert.equal(findMatches(text, 'APPLES', 100).matches.length, 3);
+  });
+
+  it('reports the column where the match really is, after letters that lowercase longer', () => {
+    const dottedCapitalI = String.fromCharCode(0x130);
+    const line = `${dottedCapitalI.repeat(10)} ${'x'.repeat(60)} HEDEF tail`;
+    const [match] = findMatches(line, 'hedef', 5).matches;
+    assert.equal(match?.column, line.indexOf('HEDEF'));
   });
 
   it('matches literally, not as a pattern', () => {

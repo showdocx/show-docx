@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--
+    The policy the real webview runs under (DocxEditorProvider.getHtmlForWebview),
+    with 'self' for the webview's resource origin. connect-src is the harness's
+    own: it fetches the fixture the host would have sent.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'nonce-harness'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self';">
   <title>ShowDocx Webview Harness</title>
   <link rel="stylesheet" href="/dist/webview/main.css">
   <style>
@@ -34,7 +40,7 @@
       --vscode-charts-blue: #3794ff;
     }
   </style>
-  <script>
+  <script nonce="harness">
     // Mirrors how VS Code keeps webview state across a hidden tab being shown
     // again: the state outlives the page, the page's variables do not. Cleared
     // unless a test opts in, so every other test starts from defaults.
@@ -44,9 +50,23 @@
     }
     const testState = {
       messages: [],
-      printCount: 0
+      printCount: 0,
+      hostLinkClicks: []
     };
     window.__showDocxTest = testState;
+    // Stands in for the listener VS Code's webview host adds to the window: it
+    // runs in the bubble phase, ignores defaultPrevented, and opens whatever
+    // link it finds, trusted workspace or not. A click that reaches it has
+    // bypassed ShowDocx's own decision about the link.
+    window.addEventListener('click', (event) => {
+      for (const node of event.composedPath()) {
+        if (node.tagName && node.tagName.toLowerCase() === 'a' && node.href) {
+          testState.hostLinkClicks.push(node.getAttribute('href'));
+          event.preventDefault();
+          return;
+        }
+      }
+    });
     window.print = () => {
       testState.printCount += 1;
     };
@@ -85,6 +105,18 @@
           savedState: saved ? JSON.parse(saved) : undefined
         };
 
+        // What the host reads out of the package arrives on its own, whenever
+        // that reading finishes. The tests answer this with the host's own
+        // parser run on the same document; without them there are no details.
+        fetch(`/__details/${encodeURIComponent(fixture)}`)
+          .then((response) => (response.ok ? response.json() : undefined))
+          .then((details) => {
+            if (details) {
+              dispatch({ type: 'documentDetails', transferId: meta.transferId, ...details });
+            }
+          })
+          .catch(() => undefined);
+
         if (params.get('transfer') === 'broken') {
           // Announce a chunked transfer, send only the first chunk, then end it.
           const chunkSize = 1024;
@@ -96,6 +128,28 @@
             index: 0,
             data: encodeBase64(bytes.subarray(0, chunkSize))
           });
+          dispatch({ type: 'documentEnd', transferId: 1 });
+          return;
+        }
+
+        // How VS Code delivers it: bytes rather than base64, one message for a
+        // small document and chunks of their own buffer for a large one.
+        if (params.get('transfer') === 'binary') {
+          dispatch({ type: 'document', ...meta, data: bytes.slice() });
+          return;
+        }
+        if (params.get('transfer') === 'binary-chunks') {
+          const chunkSize = 1024;
+          const totalChunks = Math.ceil(bytes.byteLength / chunkSize);
+          dispatch({ type: 'documentStart', ...meta, totalChunks });
+          for (let index = 0; index < totalChunks; index += 1) {
+            dispatch({
+              type: 'documentChunk',
+              transferId: 1,
+              index,
+              data: bytes.slice(index * chunkSize, (index + 1) * chunkSize)
+            });
+          }
           dispatch({ type: 'documentEnd', transferId: 1 });
           return;
         }
@@ -120,40 +174,6 @@
           return;
         }
 
-        // Stands in for what the host reads out of the package. The parsing
-        // itself is covered by unit tests against the real fixtures.
-        const properties = {
-          title: 'ShowDocx sample document',
-          creator: 'ShowDocx',
-          lastModifiedBy: 'A Reviewer',
-          created: '2026-01-02T03:04:05Z',
-          revision: '7'
-        };
-        const structure = {
-          headingStyles: [
-            { styleId: 'Title', name: 'Title', level: 1 },
-            { styleId: 'Heading1', name: 'Heading 1', level: 1 },
-            { styleId: 'Heading2', name: 'Heading 2', level: 2 },
-            { styleId: 'Heading3', name: 'Heading 3', level: 3 }
-          ],
-          comments: [],
-          commentOrder: [],
-          revisions: []
-        };
-        if (fixture === 'with-comments.docx') {
-          structure.comments = [{
-            id: '0',
-            author: 'Alice Reviewer',
-            date: '2026-01-01T00:00:00.000Z',
-            text: 'Please clarify this sentence.'
-          }];
-          structure.commentOrder = ['0'];
-          structure.revisions = [
-            { type: 'insertion', author: 'Alice Reviewer', text: 'an inserted phrase' },
-            { type: 'deletion', author: 'Alice Reviewer', text: 'a deleted phrase' }
-          ];
-        }
-        setTimeout(() => dispatch({ type: 'documentDetails', properties, structure }), 0);
 
         const payload = { type: 'document', ...meta, data: encodeBase64(bytes) };
         // Lets a test replay the message the host sends when the file changes
@@ -313,6 +333,6 @@
     </div>
   </div>
   <div id="context-menu" class="showdocx-context-menu hidden" role="menu"></div>
-  <script src="/dist/webview/main.js"></script>
+  <script nonce="harness" src="/dist/webview/main.js"></script>
 </body>
 </html>

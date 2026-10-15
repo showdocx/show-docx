@@ -1,5 +1,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { validateDocxBytes } from '../docxLoader';
+import { DocxFileTooLargeError } from '../errors';
 import { extractSearchText, findMatches, snippet } from '../text/searchText';
 import { FILENAME_PATTERN } from '../../shared/documentExtensions';
 import { getLog } from '../log';
@@ -37,15 +39,41 @@ interface CacheEntry {
 }
 
 /**
+ * How much extracted text the index keeps, in characters — about 64 MB. A
+ * workspace of a few hundred specifications fits; a folder of thousands of
+ * documents keeps the ones searched most recently rather than all of them.
+ */
+export const DEFAULT_CACHE_CHARACTERS = 32 * 1024 * 1024;
+
+export interface DocumentTextIndexOptions {
+  /** The largest file to read, in bytes: the viewer's own limit. */
+  readonly maxFileSize?: () => number;
+  readonly maxCachedCharacters?: number;
+}
+
+/**
  * Extracted text per file, keyed on the file's modification time and size, so a
  * second search is instant and an edited document is read again.
+ *
+ * Every file goes through the checks the viewer applies before it reads one:
+ * the size limit first, from `stat`, so a file far too large is never read at
+ * all; then the signature. The search covers documents nobody has opened, so it
+ * is the last place that should be laxer than opening one.
  */
 export class DocumentTextIndex {
+  /** In order of use, least recent first, so the oldest is evicted first. */
   private readonly cache = new Map<string, CacheEntry>();
+  private cachedCharacters = 0;
+  private readonly maxFileSize: () => number;
+  private readonly maxCachedCharacters: number;
 
   public constructor(
     private readonly fs: Pick<vscode.FileSystem, 'stat' | 'readFile'> = vscode.workspace.fs,
-  ) { }
+    options: DocumentTextIndexOptions = {},
+  ) {
+    this.maxFileSize = options.maxFileSize ?? (() => 100 * 1024 * 1024);
+    this.maxCachedCharacters = options.maxCachedCharacters ?? DEFAULT_CACHE_CHARACTERS;
+  }
 
   public async textOf(uri: vscode.Uri): Promise<string> {
     const key = uri.toString();
@@ -53,20 +81,55 @@ export class DocumentTextIndex {
     const stamp = `${stat.mtime}:${stat.size}`;
     const cached = this.cache.get(key);
     if (cached?.stamp === stamp) {
+      this.touch(key);
       return cached.text;
     }
 
-    const text = await extractSearchText(await this.fs.readFile(uri));
-    this.cache.set(key, { stamp, text });
+    const maxSize = this.maxFileSize();
+    if (stat.size > maxSize) {
+      throw new DocxFileTooLargeError(stat.size, maxSize);
+    }
+    const data = validateDocxBytes(await this.fs.readFile(uri), maxSize);
+    const text = await extractSearchText(data);
+    this.store(key, { stamp, text });
     return text;
   }
 
   public forget(uri: vscode.Uri): void {
-    this.cache.delete(uri.toString());
+    const entry = this.cache.get(uri.toString());
+    if (entry) {
+      this.cache.delete(uri.toString());
+      this.cachedCharacters -= entry.text.length;
+    }
   }
 
   public get size(): number {
     return this.cache.size;
+  }
+
+  private touch(key: string): void {
+    const entry = this.cache.get(key);
+    if (entry) {
+      this.cache.delete(key);
+      this.cache.set(key, entry);
+    }
+  }
+
+  private store(key: string, entry: CacheEntry): void {
+    const previous = this.cache.get(key);
+    if (previous) {
+      this.cache.delete(key);
+      this.cachedCharacters -= previous.text.length;
+    }
+    this.cache.set(key, entry);
+    this.cachedCharacters += entry.text.length;
+    for (const [oldest, value] of this.cache) {
+      if (this.cachedCharacters <= this.maxCachedCharacters || oldest === key) {
+        break;
+      }
+      this.cache.delete(oldest);
+      this.cachedCharacters -= value.text.length;
+    }
   }
 }
 

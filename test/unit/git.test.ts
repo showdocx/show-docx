@@ -5,7 +5,9 @@ import {
   EmptyRepositoryError,
   NotInRepositoryError,
   RevisionNotFoundError,
+  UnsafeRevisionError,
   findRepositoryRoot,
+  isSafeRevision,
   locateInRepository,
   readFileAtRef,
   refExists,
@@ -175,5 +177,27 @@ describe('Git: checking a revision exists', () => {
   it('is false in a repository with no commits', async () => {
     const { run } = fakeGit(() => ({ code: 1 }));
     assert.equal(await refExists('/repo', 'HEAD', run), false);
+  });
+});
+
+describe('Git: refusing a revision that is not one', () => {
+  it('accepts the names a revision is written with', () => {
+    for (const ref of ['HEAD', 'HEAD~2', 'HEAD^', 'main', 'origin/main', 'v1.2.0', 'feature/a-b_c', '3f2a9c1']) {
+      assert.ok(isSafeRevision(ref), ref);
+    }
+  });
+
+  it('refuses anything git would read as an option, a range or nothing', () => {
+    for (const ref of ['--output=/tmp/x', '-p', '', 'main..evil', 'a b', 'HEAD:../x', '@{u}']) {
+      assert.ok(!isSafeRevision(ref), ref);
+    }
+  });
+
+  it('never runs git with a refused revision', async () => {
+    const { run, calls } = fakeGit(() => ({ code: 0 }));
+
+    await assert.rejects(readFileAtRef('/repo', 'doc.docx', '--output=/tmp/pwned', run), UnsafeRevisionError);
+    await assert.rejects(refExists('/repo', '--output=/tmp/pwned', run), UnsafeRevisionError);
+    assert.equal(calls.length, 0);
   });
 });

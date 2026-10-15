@@ -155,12 +155,38 @@ async function toRealPath(value: string): Promise<string> {
   }
 }
 
+/** A revision name was refused before it reached git. */
+export class UnsafeRevisionError extends Error {
+  public constructor(public readonly ref: string) {
+    super(`"${ref}" is not a revision ShowDocx will pass to git.`);
+    this.name = 'UnsafeRevisionError';
+  }
+}
+
+/**
+ * Whether a revision name can be passed to git as one. A ref arrives from a
+ * diff URI's query, and anything that opens a `showdocx-diff:` URI chooses it;
+ * one beginning with "-" would be read as an option — `--output=<file>` writes
+ * a file. Branch names, tags, hashes and `HEAD~2` are all letters, digits and
+ * a little punctuation, starting with a letter or digit.
+ */
+export function isSafeRevision(ref: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_./~^-]*$/.test(ref) && !ref.includes('..');
+}
+
+function assertSafeRevision(ref: string): void {
+  if (!isSafeRevision(ref)) {
+    throw new UnsafeRevisionError(ref);
+  }
+}
+
 export async function readFileAtRef(
   repositoryRoot: string,
   relativePath: string,
   ref: string,
   run: GitRunner,
 ): Promise<Uint8Array> {
+  assertSafeRevision(ref);
   const result = await run(
     ['--no-optional-locks', 'show', `${ref}:${relativePath}`],
     repositoryRoot,
@@ -177,6 +203,7 @@ export async function refExists(
   ref: string,
   run: GitRunner,
 ): Promise<boolean> {
+  assertSafeRevision(ref);
   const result = await run(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], repositoryRoot);
   return result.code === 0;
 }
