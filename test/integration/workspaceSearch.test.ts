@@ -79,6 +79,37 @@ describe('Searching inside every document', () => {
     assert.ok(outcome.hits.length > 0, 'the readable documents should still be searched');
   });
 
+  it('does not read a document above the size limit at all', async function () {
+    this.timeout(60_000);
+    const read: string[] = [];
+    const limited = new DocumentTextIndex({
+      stat: (uri) => vscode.workspace.fs.stat(uri),
+      readFile: (uri) => {
+        read.push(path.basename(uri.path));
+        return vscode.workspace.fs.readFile(uri);
+      },
+    }, { maxFileSize: () => 12 * 1024 });
+    const large = files.find((uri) => uri.path.endsWith('with-images.docx'));
+    assert.ok(large);
+
+    const outcome = await searchDocuments(files, 'ShowDocx', limited);
+
+    // The fixture with images is larger than 12 KB; the others are not.
+    assert.equal(outcome.failures, 1);
+    assert.ok(!read.includes('with-images.docx'), read.join(', '));
+    assert.ok(outcome.hits.length > 0);
+  });
+
+  it('keeps only as much text as it is allowed, dropping the least recently used', async function () {
+    this.timeout(60_000);
+    const small = new DocumentTextIndex(vscode.workspace.fs, { maxCachedCharacters: 1 });
+
+    await searchDocuments(files.slice(0, 2), 'ShowDocx', small);
+
+    // Each text alone is over the bound, so only the one just read is kept.
+    assert.equal(small.size, 1);
+  });
+
   it('stops when the search is cancelled', async function () {
     this.timeout(60_000);
     const source = new vscode.CancellationTokenSource();

@@ -15,7 +15,11 @@ export function activate(context: vscode.ExtensionContext): void {
   const log = getLog();
   log.info('ShowDocx activated.');
   const provider = DocxEditorProvider.register(context);
-  const documentText = new DocumentTextIndex();
+  // The workspace search reads documents nobody opened; it applies the same
+  // size limit as opening one.
+  const documentText = new DocumentTextIndex(vscode.workspace.fs, {
+    maxFileSize: () => provider.maxFileSize,
+  });
 
   const diffProvider = new DocxDiffContentProvider({
     readWorkingTree: (uri) => provider.readDocument(uri),

@@ -34,6 +34,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Shapes in a group are drawn where they belong.** Every shape in a grouped drawing was placed at the group's top-left corner, so a diagram of text boxes and shapes collapsed into one overlapping heap. Each is now positioned and sized from the group's own coordinates, and nested groups are followed to a bounded depth. ([#75](https://github.com/showdocx/show-docx/issues/75))
 
+- **The workspace search keeps to the viewer's size limit.** It read every Word file in the workspace whole, however large, including ones nobody had opened, and kept the text of all of them. A file above `showDocx.maxFileSizeMb` is now skipped without being read, and reported with the unreadable ones; the text kept between searches is bounded, dropping what was searched least recently. ([#70](https://github.com/showdocx/show-docx/issues/70))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed
