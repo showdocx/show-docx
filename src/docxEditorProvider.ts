@@ -56,6 +56,8 @@ interface WebviewMessage {
   state?: unknown;
   /** Raw diagnostic text for the log channel. Never shown to the user. */
   detail?: string;
+  /** Which transfer a report is about, so one about an older render is ignored. */
+  transferId?: number;
 }
 
 interface ExportOptions {
@@ -75,14 +77,14 @@ interface PanelEntry {
   pending: unknown[];
   /** What the document says about itself, read once per document. */
   facts?: DocumentFacts;
+  /** Pages the viewer has actually rendered for the current transfer. */
+  renderedPages?: number;
 }
 
 interface DocumentFacts {
   readonly properties: DocumentProperties;
   readonly structure: DocumentStructure;
   readonly words: number;
-  /** Pages the viewer has actually rendered, once it reports them. */
-  renderedPages?: number;
 }
 
 export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<DocxDocument> {
@@ -266,16 +268,22 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const { facts } = entry;
     const stats: DocumentStats = {
       words: facts.words,
-      pages: facts.renderedPages ?? facts.properties.pages,
+      pages: entry.renderedPages ?? facts.properties.pages,
     };
     this.statusBar.update(stats);
   }
 
   /**
-   * Reads what the document says about itself, once. A failure here is never a
-   * reason to stop showing the document, so it leaves the facts unknown.
+   * Reads what the document says about itself, once per transfer. A failure
+   * here is never a reason to stop showing the document, so it leaves the facts
+   * unknown.
+   *
+   * The result is tagged with the transfer it was read for. It can finish
+   * before the document has arrived — a large one comes in chunks — or after a
+   * newer version has been sent, and neither the webview nor this entry may
+   * take it for the facts of a document they are not showing.
    */
-  private async readFacts(entry: PanelEntry): Promise<void> {
+  private async readFacts(entry: PanelEntry, transferId: number): Promise<void> {
     try {
       const data = entry.document.data;
       const [properties, structure, text] = await Promise.all([
@@ -285,7 +293,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         // footers out.
         extractSearchText(data, { headersAndFooters: false }),
       ]);
-      if (entry.disposed) {
+      if (entry.disposed || entry.transferId !== transferId) {
         return;
       }
       entry.facts = { properties, structure, words: countWords(text) };
@@ -294,6 +302,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       // not hold up showing it.
       void entry.panel.webview.postMessage({
         type: 'documentDetails',
+        transferId,
         properties,
         structure,
       });
@@ -353,8 +362,12 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         }
         break;
       case 'documentStats':
-        if (entry.facts && typeof message.pages === 'number' && message.pages > 0) {
-          entry.facts.renderedPages = message.pages;
+        if (
+          typeof message.pages === 'number'
+          && message.pages > 0
+          && message.transferId === entry.transferId
+        ) {
+          entry.renderedPages = message.pages;
           this.refreshStatusBar();
         }
         break;
@@ -405,7 +418,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const transferId = ++this.transferSequence;
     entry.transferId = transferId;
     entry.facts = undefined;
-    void this.readFacts(entry);
+    entry.renderedPages = undefined;
+    void this.readFacts(entry, transferId);
     const data = entry.document.data;
     const chunks = splitIntoChunks(data, DEFAULT_CHUNK_SIZE);
     const meta = {

@@ -167,7 +167,7 @@
             { type: 'deletion', id: '2', author: 'Alice Reviewer', text: 'a deleted phrase' }
           ];
         }
-        setTimeout(() => dispatch({ type: 'documentDetails', properties, structure }), 0);
+        setTimeout(() => dispatch({ type: 'documentDetails', transferId: meta.transferId, properties, structure }), 0);
 
         const payload = { type: 'document', ...meta, data: encodeBase64(bytes) };
         // Lets a test replay the message the host sends when the file changes

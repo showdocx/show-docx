@@ -20,6 +20,10 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Text boxes are counted and found once.** Word stores a text box twice — as DrawingML and again as a VML fallback for older readers — and both copies were read, so every word in a text box was counted twice in the status bar and matched twice by the workspace search. The word count also leaves headers and footers out now, as Word's does. ([#69](https://github.com/showdocx/show-docx/issues/69))
 
+- **Properties, outline and comments no longer go blank for a large document.** What ShowDocx reads out of the package is read while the document is being sent, and for a document over 1 MB — sent in chunks — it could arrive first and be cleared the moment the document did. It now says which version it belongs to, and waits for that version; a slow read of an older version that finishes last is ignored rather than replacing the facts of the one on screen. ([#65](https://github.com/showdocx/show-docx/issues/65))
+
+- **Renders no longer overlap.** A reload while a render was running, or an export while switching mode, started a second render into the same page, and the slower, older one could be what stayed on screen. Renders and exports now run one after another, and a render the reader has switched away from no longer takes over the screen when it finishes. ([#71](https://github.com/showdocx/show-docx/issues/71))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

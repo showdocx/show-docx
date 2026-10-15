@@ -901,6 +901,82 @@ test('renders embedded HTML in a sandboxed frame', async ({ page }) => {
     .toContainText('Embedded HTML chunk');
 });
 
+/**
+ * Replays what the host sends for a document above 1 MB: the document in
+ * chunks, and what the host read out of the package arriving whenever that
+ * reading finished — here, before the last chunk.
+ */
+async function replayChunkedTransfer(page, { transferId, details, detailsTransferId = transferId }) {
+  await page.evaluate(async ({ transferId, details, detailsTransferId }) => {
+    const bytes = new Uint8Array(await (await fetch('/test/fixtures/with-headings.docx')).arrayBuffer());
+    const base64 = (part) => btoa(String.fromCharCode(...part));
+    const send = (data) => window.dispatchEvent(new MessageEvent('message', { data }));
+    const settings = { defaultMode: 'visual', defaultZoom: 100, defaultPageTheme: 'paper', maxFileSizeMb: 100, autoReload: true };
+    const size = 1024;
+    const totalChunks = Math.ceil(bytes.length / size);
+    send({ type: 'documentStart', transferId, fileName: 'with-headings.docx', fileSize: bytes.length, settings, reload: true, totalChunks });
+    send({ type: 'documentDetails', transferId: detailsTransferId, ...details });
+    for (let index = 0; index < totalChunks; index += 1) {
+      send({ type: 'documentChunk', transferId, index, data: base64(bytes.subarray(index * size, (index + 1) * size)) });
+    }
+    send({ type: 'documentEnd', transferId });
+  }, { transferId, details, detailsTransferId });
+}
+
+const replayedDetails = {
+  properties: { title: 'Arrived early', creator: 'The host' },
+  structure: { headingStyles: [{ styleId: 'Heading1', name: 'Heading 1', level: 1 }], comments: [], commentOrder: [], revisions: [] },
+};
+
+test('keeps what the host read even when it arrives before the document', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+
+  await replayChunkedTransfer(page, { transferId: 2, details: replayedDetails });
+  await expect(page.locator('#loading')).toBeHidden();
+
+  await page.locator('#properties-toggle').click();
+  await expect(page.locator('#properties-list')).toContainText('Arrived early');
+  await page.locator('#outline-toggle').click();
+  await expect(page.locator('#outline-list .outline-item').first()).toBeVisible();
+});
+
+test('ignores what the host read for a version it no longer shows', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=with-headings.docx');
+  await expect(page.locator('#visual-container section')).toBeVisible();
+  await replayChunkedTransfer(page, { transferId: 3, details: replayedDetails });
+  await expect(page.locator('#loading')).toBeHidden();
+
+  // A slow read of an older version finishing last must not replace the facts.
+  await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+    type: 'documentDetails', transferId: 2, properties: { title: 'Stale title' }, structure: undefined,
+  } })));
+  await page.locator('#properties-toggle').click();
+  await expect(page.locator('#properties-list')).toContainText('Arrived early');
+  await expect(page.locator('#properties-list')).not.toContainText('Stale title');
+});
+
+test('says which version a page count is for', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html');
+  await expect.poll(() => page.evaluate(() => window.__showDocxTest.messages
+    .filter((message) => message.type === 'documentStats')
+    .map((message) => message.transferId))).toEqual([1]);
+});
+
+test('shows the mode the reader chose when they switch while a render runs', async ({ page }) => {
+  await page.goto('/scripts/webview-harness.html?fixture=large-file.docx');
+  await expect(page.locator('#visual-container section').first()).toBeVisible();
+  await page.evaluate(() => window.__showDocxTest.reload());
+  await page.locator('#mode-text').click();
+  await page.locator('#mode-visual').click();
+  await page.locator('#mode-text').click();
+
+  await expect(page.locator('#loading')).toBeHidden({ timeout: 20_000 });
+  await expect(page.locator('#mode-text')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#text-container')).toBeVisible();
+  await expect(page.locator('#visual-container')).toBeHidden();
+});
+
 test('shows the error state when a chunked transfer loses chunks', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?transfer=broken');
 

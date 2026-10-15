@@ -78,7 +78,11 @@ export default [
       globals: {
         process: 'readonly',
         document: 'readonly',
+        atob: 'readonly',
+        btoa: 'readonly',
+        fetch: 'readonly',
         getComputedStyle: 'readonly',
+        MessageEvent: 'readonly',
         window: 'readonly',
       },
     },

@@ -76,6 +76,14 @@ export interface DocumentProperties {
   pages?: number;
 }
 
+/** What the host read out of the package for one transfer. */
+export interface DocumentDetails {
+  /** The transfer it was read for; absent from a host that does not say. */
+  transferId?: number;
+  properties?: DocumentProperties;
+  structure?: DocumentStructure;
+}
+
 export interface ViewerSettings {
   defaultMode: RenderMode;
   defaultZoom: number;

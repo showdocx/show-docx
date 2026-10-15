@@ -15,6 +15,7 @@ import { SearchController } from './search';
 import { StateManager } from './stateManager';
 import { Toolbar } from './toolbar';
 import type {
+  DocumentDetails,
   DocumentMeta,
   IncomingMessage,
   PageTheme,
@@ -68,6 +69,19 @@ let chunkTransfer: {
 } | undefined;
 let scrollTimer: number | undefined;
 let transferWatchdog: number | undefined;
+/**
+ * What the host read out of the package, held until the document it belongs to
+ * has arrived. The host reads it while the document is still being sent, so for
+ * a large document it can land first — and accepting the document clears it.
+ */
+let pendingDetails: DocumentDetails | undefined;
+/**
+ * The tail of the render queue. docx-preview clears the container it renders
+ * into and fills it later, so two renders at once — a reload while one is still
+ * running, an export while switching mode — could leave the slower, older one
+ * on screen. Every render waits for the one before it.
+ */
+let renderQueue: Promise<unknown> = Promise.resolve();
 
 /** A chunked transfer that makes no progress for this long is treated as failed. */
 const TRANSFER_TIMEOUT_MS = 30_000;
@@ -306,9 +320,11 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
       applyPageTheme(state.nextPageTheme());
       break;
     case 'documentDetails':
-      properties.update(message.properties);
-      outline.setHeadingStyles(message.structure?.headingStyles ?? []);
-      comments.setStructure(message.structure);
+      receiveDetails({
+        transferId: message.transferId,
+        properties: message.properties,
+        structure: message.structure,
+      });
       break;
     case 'showProperties':
       properties.open();
@@ -405,8 +421,33 @@ function reportPageCount(): void {
   }
   const pages = visualContainer.querySelectorAll('section').length;
   if (pages > 0) {
-    vscode.postMessage({ type: 'documentStats', pages });
+    vscode.postMessage({ type: 'documentStats', pages, transferId: currentMeta?.transferId });
   }
+}
+
+function receiveDetails(details: DocumentDetails): void {
+  if (details.transferId === undefined || details.transferId === currentMeta?.transferId) {
+    applyDetails(details);
+    return;
+  }
+  // Transfers only ever count up: a later one is the document still on its
+  // way, an earlier one belongs to a version this view no longer shows.
+  if (details.transferId > (currentMeta?.transferId ?? 0)) {
+    pendingDetails = details;
+  }
+}
+
+function applyDetails(details: DocumentDetails): void {
+  properties.update(details.properties);
+  outline.setHeadingStyles(details.structure?.headingStyles ?? []);
+  comments.setStructure(details.structure);
+}
+
+/** Runs a task once every render queued before it has finished. */
+function serialized<T>(task: () => Promise<T>): Promise<T> {
+  const run = renderQueue.then(task, task);
+  renderQueue = run.catch(() => undefined);
+  return run;
 }
 
 function applyPageTheme(theme: PageTheme): void {
@@ -442,6 +483,12 @@ async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<vo
   properties.update(undefined);
   outline.setHeadingStyles([]);
   comments.setStructure(undefined);
+  if (pendingDetails && pendingDetails.transferId === meta.transferId) {
+    applyDetails(pendingDetails);
+  }
+  if (pendingDetails && (pendingDetails.transferId ?? 0) <= meta.transferId) {
+    pendingDetails = undefined;
+  }
   zoom.apply();
   showLoading(meta.reload ? 'Document changed. Rendering again...' : 'Rendering document...', 55);
   await renderMode(state.value.mode);
@@ -458,7 +505,11 @@ async function switchMode(mode: RenderMode): Promise<void> {
   search.refresh();
 }
 
-async function renderMode(mode: RenderMode): Promise<void> {
+function renderMode(mode: RenderMode): Promise<void> {
+  return serialized(() => renderModeNow(mode));
+}
+
+async function renderModeNow(mode: RenderMode): Promise<void> {
   if (!currentBuffer) {
     return;
   }
@@ -503,6 +554,11 @@ async function renderMode(mode: RenderMode): Promise<void> {
         return;
       }
       textRendered = true;
+    }
+    if (state.value.mode !== mode) {
+      // The reader switched while this rendered. The render for the mode they
+      // chose is queued behind this one and will show it.
+      return;
     }
 
     visualContainer.classList.toggle('hidden', mode !== 'visual');
@@ -705,15 +761,24 @@ async function hasTrackedChanges(arrayBuffer: ArrayBuffer): Promise<boolean> {
   }
 }
 
-async function exportHtml(): Promise<void> {
+function exportHtml(): Promise<void> {
+  return serialized(exportHtmlNow);
+}
+
+async function exportHtmlNow(): Promise<void> {
   if (!currentBuffer || !currentMeta) {
     return;
   }
+  const generation = renderGeneration;
   toolbar.setBusy(true);
   try {
     if (!textRendered) {
       showLoading('Preparing semantic HTML...', 75);
       await renderText(currentBuffer);
+      if (generation !== renderGeneration) {
+        // A newer version arrived meanwhile; its own render is queued.
+        return;
+      }
       textRendered = true;
       showContent();
     }
@@ -741,15 +806,23 @@ function askHostFor(type: 'exportMarkdown' | 'copyMarkdown' | 'copyText'): void 
   vscode.postMessage({ type });
 }
 
-async function exportPdf(): Promise<void> {
+function exportPdf(): Promise<void> {
+  return serialized(exportPdfNow);
+}
+
+async function exportPdfNow(): Promise<void> {
   if (!currentBuffer || !currentMeta) {
     return;
   }
   const buffer = currentBuffer;
   const meta = currentMeta;
+  const generation = renderGeneration;
   toolbar.setBusy(true);
   try {
-    const html = await buildPrintableDocument(buffer, meta);
+    const html = await buildPrintableDocument(buffer, meta, generation);
+    if (generation !== renderGeneration) {
+      return;
+    }
     showContent();
     vscode.postMessage({ type: 'exportPdf', html });
   } catch (error: unknown) {
@@ -767,8 +840,9 @@ async function exportPdf(): Promise<void> {
 async function buildPrintableDocument(
   buffer: ArrayBuffer,
   meta: DocumentMeta,
+  generation: number,
 ): Promise<string> {
-  if (await ensureVisualRendered(buffer)) {
+  if (await ensureVisualRendered(buffer, generation)) {
     const body = collectVisualBody();
     if (body) {
       return createPrintDocument(meta.fileName, collectVisualStyles(), body);
@@ -778,7 +852,9 @@ async function buildPrintableDocument(
   if (!textRendered) {
     showLoading('Preparing document for PDF...', 75);
     await renderText(buffer);
-    textRendered = true;
+    if (generation === renderGeneration) {
+      textRendered = true;
+    }
   }
   return createExportDocument(meta.fileName, exportedTextHtml);
 }
@@ -789,7 +865,7 @@ async function buildPrintableDocument(
  * renders, so it has to be attached and visible even though Text mode is what
  * stays on screen afterwards.
  */
-async function ensureVisualRendered(buffer: ArrayBuffer): Promise<boolean> {
+async function ensureVisualRendered(buffer: ArrayBuffer, generation: number): Promise<boolean> {
   if (visualRendered) {
     return true;
   }
@@ -803,10 +879,15 @@ async function ensureVisualRendered(buffer: ArrayBuffer): Promise<boolean> {
   visualContainer.classList.remove('hidden');
   try {
     await renderVisual(buffer);
-    visualRendered = true;
+    if (generation === renderGeneration) {
+      visualRendered = true;
+    }
     return true;
   } catch (error: unknown) {
     console.warn('ShowDocx could not render the page layout for export:', error);
+    if (generation !== renderGeneration) {
+      return false;
+    }
     visualFailed = true;
     visualContainer.replaceChildren();
     return false;
