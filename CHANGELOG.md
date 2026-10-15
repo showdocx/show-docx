@@ -2,7 +2,7 @@
 
 All notable changes to ShowDocx are documented in this file.
 
-## [Unreleased]
+## [1.2.2] - 2026-10-15
 
 ### Security
 
@@ -13,6 +13,8 @@ All notable changes to ShowDocx are documented in this file.
 - **Only a revision name reaches git as one.** The revision in a comparison's URI went to `git show` unchecked, so a crafted `showdocx-diff:` URI could pass git an option instead. A revision must now start with a letter or digit and hold nothing but what revision names are written with, and is refused before git runs. **Compare with HEAD** also no longer runs git in a restricted workspace, as VS Code's own Git extension does not.
 
 - **The `readDocx` tool follows links before it decides a document is in the workspace.** The boundary was checked on the path as written, so a link inside the workspace to a document outside it was read. Links are now resolved, for the document and for the workspace folders, before the check.
+
+- **Two bundled libraries are updated past new advisories.** `@xmldom/xmldom`, which parses every document's XML through mammoth, goes from 0.8.13 to 0.8.15 (a high-severity advisory: name injection and quadratic-time parsing), and DOMPurify, which sanitizes the Text view, from 3.4.14 to 3.4.17.
 
 ### Fixed
 
