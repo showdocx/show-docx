@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { findFolded } from '../../shared/searchFold';
 import { decodeEntities } from './htmlToText';
 
 /**
@@ -96,18 +97,16 @@ export function findMatches(
     return { matches, truncated: false };
   }
 
-  const needle = query.toLowerCase();
   const lines = text.split('\n');
   for (let line = 0; line < lines.length; line += 1) {
     const value = lines[line] ?? '';
-    const haystack = value.toLowerCase();
-    let column = haystack.indexOf(needle);
-    while (column !== -1) {
+    // One more than the room left, so running out is reported as truncation.
+    const found = findFolded(value, query, limit - matches.length + 1);
+    for (const match of found.matches) {
       if (matches.length >= limit) {
         return { matches, truncated: true };
       }
-      matches.push({ line, text: value, column });
-      column = haystack.indexOf(needle, column + needle.length);
+      matches.push({ line, text: value, column: match.start });
     }
   }
   return { matches, truncated: false };

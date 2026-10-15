@@ -14,6 +14,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **A Markdown mirror only replaces a file ShowDocx wrote.** Any `.md` with the expected name counted as a mirror, so with `markdownMirror: onChange` a hand-written `guide.md` beside `guide.docx` was overwritten on the document's next change, and **Write Markdown Mirrors** did the same. A file is now a mirror only when its first line says ShowDocx generated it from that document (an empty file still counts, as a request for one). Two documents whose mirrors would be the same file — `x.docx` beside `x.docm`, or two `spec.docx` with a mirror directory set — are both skipped and reported, where the last one used to win silently. The header now names the document by its path in the workspace, so existing mirrors of documents in subfolders change once on their next refresh. ([#62](https://github.com/showdocx/show-docx/issues/62))
 
+- **Search works in Turkish text.** Lowercasing `İ` produces two characters where there was one, so every `İ` before a match moved the highlight one character to the right — searching "hedef" in a line starting "İSTANBUL İZMİR" highlighted "kelim" — and a match could vanish altogether. `istanbul` did not find `İSTANBUL`, nor `ırmak` `IRMAK`. Both searches now fold `I`, `ı`, `İ` and `i` together and map every match back to where it really is; the workspace search's snippets were off by the same amount. ([#63](https://github.com/showdocx/show-docx/issues/63))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

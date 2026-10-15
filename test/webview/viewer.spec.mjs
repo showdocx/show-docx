@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { linksDocument, serveDocument } from './documents.mjs';
+import { linksDocument, serveDocument, turkishDocument } from './documents.mjs';
 
 test('renders visual and text modes and updates zoom', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
@@ -723,6 +723,29 @@ for (const mode of ['text', 'visual']) {
     await expect(page.locator('mark.showdocx-search-match')).toHaveCount(2);
     await page.locator('#search-next').click();
     await expect(page.locator('mark.showdocx-search-current')).toHaveCount(2);
+  });
+}
+
+for (const mode of ['visual', 'text']) {
+  test(`highlights the match itself in Turkish text in ${mode} mode`, async ({ page }) => {
+    await serveDocument(page, 'turkish.docx', await turkishDocument());
+    await page.goto(`/scripts/webview-harness.html?fixture=turkish.docx&mode=${mode}`);
+    await expect(page.locator(mode === 'visual' ? '#visual-container' : '#text-container')).toContainText('hedef');
+    const marks = () => page.locator('mark.showdocx-search-match').allTextContents();
+
+    await page.keyboard.press('Control+f');
+    await page.locator('#search-input').fill('hedef');
+    await expect.poll(marks).toEqual(['hedef']);
+
+    await page.locator('#search-input').fill('ab');
+    await expect.poll(marks).toEqual(['ab']);
+
+    // Typed without the dot, the way most keyboards make it easiest.
+    await page.locator('#search-input').fill('istanbul');
+    await expect.poll(marks).toEqual([`${String.fromCharCode(0x130)}STANBUL`]);
+
+    await page.locator('#search-input').fill(`${String.fromCharCode(0x131)}rmak`);
+    await expect.poll(marks).toEqual(['IRMAK']);
   });
 }
 

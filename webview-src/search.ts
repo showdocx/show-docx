@@ -1,3 +1,4 @@
+import { findFolded } from '../shared/searchFold';
 import { getButton, getElement, getInput } from './dom';
 
 /** A single match: one mark per text node the match spans. */
@@ -154,21 +155,11 @@ export class SearchController {
       return [];
     }
 
-    const flat = slices.map((slice) => slice.text).join('').toLowerCase();
-    const needle = query.toLowerCase();
-
-    const ranges: Array<{ start: number; end: number }> = [];
-    for (
-      let at = flat.indexOf(needle);
-      at !== -1;
-      at = flat.indexOf(needle, at + needle.length)
-    ) {
-      if (ranges.length >= MAX_MATCHES) {
-        this.truncated = true;
-        break;
-      }
-      ranges.push({ start: at, end: at + needle.length });
-    }
+    // Folded rather than lowercased, and mapped back: lowercasing changes the
+    // length of some letters (Turkish İ), which used to move every later match.
+    const found = findFolded(slices.map((slice) => slice.text).join(''), query, MAX_MATCHES);
+    this.truncated = found.truncated;
+    const ranges = found.matches;
     if (ranges.length === 0) {
       return [];
     }

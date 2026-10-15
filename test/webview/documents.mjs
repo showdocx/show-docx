@@ -67,6 +67,25 @@ export async function linksDocument() {
   return withAltChunk(await Packer.toBuffer(document), '<html><body><p>Embedded HTML chunk</p></body></html>');
 }
 
+/**
+ * Turkish text, where the dotted capital I lowercases to two code units and
+ * the dotless i has no Latin case pair. The second paragraph's match sits in
+ * the same text node as six of them.
+ */
+export async function turkishDocument() {
+  const dotted = String.fromCharCode(0x130);
+  const document = new Document({
+    sections: [{
+      children: [
+        new Paragraph(`${dotted}STANBUL ${dotted}ZM${dotted}R ${dotted}LET${dotted}Ş${dotted}M hedef kelime burada.`),
+        new Paragraph(`${dotted.repeat(6)} ab`),
+        new Paragraph('IRMAK kenarında'),
+      ],
+    }],
+  });
+  return Packer.toBuffer(document);
+}
+
 /** Adds an `altChunk` — HTML Word embeds as-is — at the end of the body. */
 async function withAltChunk(bytes, html) {
   const zip = await JSZip.loadAsync(bytes);

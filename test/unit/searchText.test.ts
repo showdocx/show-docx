@@ -141,6 +141,13 @@ describe('Finding matches in a document', () => {
     assert.equal(findMatches(text, 'APPLES', 100).matches.length, 3);
   });
 
+  it('reports the column where the match really is, after letters that lowercase longer', () => {
+    const dottedCapitalI = String.fromCharCode(0x130);
+    const line = `${dottedCapitalI.repeat(10)} ${'x'.repeat(60)} HEDEF tail`;
+    const [match] = findMatches(line, 'hedef', 5).matches;
+    assert.equal(match?.column, line.indexOf('HEDEF'));
+  });
+
   it('matches literally, not as a pattern', () => {
     // Someone searching a specification for "s. 4(a)" means those characters.
     assert.equal(findMatches('clause s. 4(a) applies', 's. 4(a)', 10).matches.length, 1);
