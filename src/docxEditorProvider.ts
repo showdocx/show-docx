@@ -11,7 +11,7 @@ import { getLog } from './log';
 import { refreshExistingMirror } from './mirror/markdownMirror';
 import { DocumentStatusBar } from './statusBar';
 import { convertDocxToPlainText, convertDocxToText } from './text/docxText';
-import { countWords, readDocumentProperties } from './text/documentFacts';
+import { countWords, pageCount, readDocumentProperties } from './text/documentFacts';
 import type { DocumentProperties, DocumentStats } from './text/documentFacts';
 import { readDocumentStructure } from './text/documentStructure';
 import type { DocumentStructure } from './text/documentStructure';
@@ -283,7 +283,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const { facts } = entry;
     const stats: DocumentStats = {
       words: facts.words,
-      pages: entry.renderedPages ?? facts.properties.pages,
+      pages: pageCount(entry.renderedPages, facts.properties.pages),
     };
     this.statusBar.update(stats);
   }

@@ -30,7 +30,7 @@ VS Code cannot open a Word document, and git cannot diff one. ShowDocx answers b
 
 ### Reading
 
-- **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes and page sizing — with `docx-preview`. Pages break where the document declares them; nothing is repaginated.
+- **Visual mode** renders the Word page layout — headers, footers, tables, images, footnotes and page sizing — with `docx-preview`. Pages break where the document declares them and where Word last laid them out; nothing is repaginated.
 - **Text mode** converts the document to clean, theme-aware semantic HTML with `mammoth`.
 - **Page themes** — paper, sepia or dark. Most VS Code users run a dark theme, and an 80-page white page does not have to be the only option.
 - **Fit to width, fit to page**, held against the panel as you resize it, plus zoom from 25% to 400% by toolbar, keyboard or `Ctrl/Cmd` + wheel.
@@ -210,7 +210,7 @@ Documents are processed entirely on your machine inside the VS Code extension ho
 - Search matches at most 2000 results per query, shown as `2000+`. Workspace search shows at most 300 matches, and at most 20 per document.
 - Table of contents, bookmarks, advanced Word fields, and some hyperlinks are limited by the open-source rendering engines.
 - Visual mode prioritizes page fidelity, but highly complex Word layouts may differ from Microsoft Word.
-- Pages break where the document declares them; ShowDocx does not repaginate, so the page count can differ from what Word reports for the same file.
+- Pages break where the document declares them and where Word recorded a page beginning when it last saved the file. ShowDocx does not repaginate, so a document saved by a tool that records no page breaks shows its explicit breaks only; the status bar then takes the page count Word stored, when there is one.
 - HTML export is semantic and intentionally does not reproduce the exact page layout; the PDF export does.
 - If Visual mode cannot render a document at all, the PDF export falls back to the semantic text view rather than failing.
 - Comparing revisions covers `HEAD` and local files. Comparing two selected documents, arbitrary revisions, and following a rename are not implemented yet.

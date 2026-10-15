@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { linksDocument, serveDocument, turkishDocument } from './documents.mjs';
+import { linksDocument, paginatedDocument, serveDocument, turkishDocument } from './documents.mjs';
 
 test('renders visual and text modes and updates zoom', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
@@ -251,6 +251,49 @@ test('shows which page is on screen, and only where pages exist', async ({ page 
 
   await page.locator('#mode-visual').click();
   await expect(indicator).toBeVisible();
+});
+
+test('breaks pages where Word last laid them out', async ({ page }) => {
+  await serveDocument(page, 'paginated.docx', await paginatedDocument());
+  await page.goto('/scripts/webview-harness.html?fixture=paginated.docx');
+  const pages = page.locator('#visual-container section.showdocx-visual');
+  await expect(pages).toHaveCount(4);
+  await expect(page.locator('#page-indicator')).toHaveText('1 / 4');
+
+  const texts = await pages.evaluateAll((sections) => sections.map((section) => (
+    [...section.querySelectorAll('article p')].map((paragraph) => paragraph.textContent.trim())
+  )));
+  // A list item split across pages leaves its second half on the next page;
+  // a paragraph Word started a page with moves whole, leaving nothing behind;
+  // a continuous section stays on the page; a new-page section does not.
+  // The empty paragraphs on page three are the document's own: the library
+  // that wrote it ends each section with one, holding its properties.
+  expect(texts).toEqual([
+    ['Page one', 'Item one', 'Item two, first half'],
+    ['second half', 'Item three'],
+    ['Third page starts here', '', 'Continuous section text', ''],
+    ['Fourth page'],
+  ]);
+
+  // The second half keeps the list's indentation but shows no number of its
+  // own, so item three is still numbered 3.
+  const markers = await pages.evaluateAll((sections) => sections.flatMap((section) => (
+    [...section.querySelectorAll('article p')]
+      .filter((paragraph) => [...paragraph.classList].some((name) => name.includes('-num-')))
+      .map((paragraph) => ({
+        text: paragraph.textContent.trim(),
+        marker: getComputedStyle(paragraph, '::before').content !== 'none',
+        indent: paragraph.getBoundingClientRect().left,
+      }))
+  )));
+  expect(markers.map(({ text, marker }) => [text, marker])).toEqual([
+    ['Item one', true],
+    ['Item two, first half', true],
+    ['second half', false],
+    ['Item three', true],
+  ]);
+  const left = Object.fromEntries(markers.map(({ text, indent }) => [text, indent]));
+  expect(left['second half']).toBe(left['Item three']);
 });
 
 test('asks the host which page to go to, so the prompt is the editor s own', async ({ page }) => {

@@ -8,6 +8,7 @@ import {
   readMedia,
   describeDocument,
   imageName,
+  pageCount,
   readTag,
   readingMinutes,
 } from '../../src/text/documentFacts';
@@ -121,6 +122,25 @@ describe('Counting a document', () => {
     assert.equal(readingMinutes(10), 1);
     assert.equal(readingMinutes(200), 1);
     assert.equal(readingMinutes(6480), 32);
+  });
+});
+
+describe('Choosing the page count to show', () => {
+  it('does not call a long document one page because it was rendered as one', () => {
+    // A document saved by a tool that records no page breaks renders as a
+    // single long page; Word's own count is the better answer.
+    assert.equal(pageCount(1, 15), 15);
+  });
+
+  it('never shows fewer pages than are on screen', () => {
+    assert.equal(pageCount(12, 9), 12);
+  });
+
+  it('uses whichever count there is', () => {
+    assert.equal(pageCount(4, undefined), 4);
+    assert.equal(pageCount(undefined, 7), 7);
+    assert.equal(pageCount(undefined, undefined), undefined);
+    assert.equal(pageCount(0, undefined), undefined);
   });
 });
 

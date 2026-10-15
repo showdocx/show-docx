@@ -30,6 +30,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Markdown says what the document says.** The text was written into the Markdown as it was, so a paragraph beginning with "#" became a heading, "2\*3\*4" came out with an italic 3, "List<String>" vanished as an HTML tag and "[draft](notes)" turned into a link. Exports, the clipboard, the `readDocx` tool, `@docx` and mirrors now escape what Markdown would read as syntax — and only that: prose, `file_names`, "2 < 3" and "AT&T" are unchanged. A link whose target has spaces or parentheses is written so it no longer breaks, and code is written literally. Committed mirrors change once, where their documents hold such characters. ([#67](https://github.com/showdocx/show-docx/issues/67))
 
+- **Pages are where Word put them.** Visual mode broke pages only at explicit page and section breaks, so a forty-page document without manual breaks was one long page — the page indicator said "1 / 1" and the status bar "1 page". It now also follows the page beginnings Word records each time it saves. A paragraph Word moved to a new page moves whole instead of leaving an empty copy behind; the second half of a list item split across pages is not numbered again; a continuous section stays on its page, where every section used to start a new one. For a document written by a tool that records no page breaks, the status bar takes the larger of the pages rendered and the count Word stored. ([#68](https://github.com/showdocx/show-docx/issues/68))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

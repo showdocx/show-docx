@@ -27,7 +27,7 @@ export interface DocumentProperties {
   /**
    * The page count Word recorded when it last saved. Absent from documents
    * written by anything else, and stale the moment another tool edits them —
-   * which is why the viewer prefers the pages it has actually rendered.
+   * which is why it is weighed against the pages the viewer rendered.
    */
   readonly pages?: number;
 }
@@ -156,6 +156,20 @@ export interface DocumentStats {
    * saved, and a document written by anything else has no source at all.
    */
   readonly pages?: number;
+}
+
+/**
+ * The page count worth showing, from the two there are.
+ *
+ * The rendered count is a floor: every page the viewer drew is a page, but a
+ * document saved by a tool that records no page breaks renders as one long
+ * page whatever its length. Word's own count is usually the real one, but can
+ * be stale. The larger of the two is never fewer pages than are on screen, and
+ * never hides Word's figure behind a render that could not paginate.
+ */
+export function pageCount(rendered: number | undefined, recorded: number | undefined): number | undefined {
+  const counts = [rendered, recorded].filter((value): value is number => value !== undefined && value > 0);
+  return counts.length === 0 ? undefined : Math.max(...counts);
 }
 
 /** How much document this is, in one line: "24 pages · 6,480 words · ~32 min read". */

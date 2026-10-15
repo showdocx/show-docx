@@ -1,5 +1,5 @@
 diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
-index d8e0043..81fbbba 100644
+index d8e0043..d7bac7e 100644
 --- a/node_modules/docx-preview/dist/docx-preview.js
 +++ b/node_modules/docx-preview/dist/docx-preview.js
 @@ -1371,7 +1371,12 @@
@@ -102,7 +102,85 @@ index d8e0043..81fbbba 100644
          parsePicture(elem) {
              var result = { type: DomType.Image, src: "", cssStyle: {} };
              var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3517,6 +3570,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3134,6 +3187,12 @@
+                 || prev.pageSize?.width != next.pageSize?.width
+                 || prev.pageSize?.height != next.pageSize?.height;
+         }
++        breaksAtStart(paragraph, runIndex, breakIndex) {
++            const breakRun = paragraph.children[runIndex];
++            if (breakRun.children[breakIndex]?.break != "lastRenderedPageBreak")
++                return false;
++            return breakIndex == 0 && paragraph.children.slice(0, runIndex).every(c => !c.children?.length);
++        }
+         splitBySection(elements, defaultProps) {
+             var current = { sectProps: null, elements: [], pageBreak: false };
+             var result = [current];
+@@ -3159,6 +3218,15 @@
+                             return rBreakIndex != -1;
+                         });
+                     }
++                    if (pBreakIndex != -1 && this.breaksAtStart(p, pBreakIndex, rBreakIndex)) {
++                        if (current.elements.length > 1) {
++                            current.elements.pop();
++                            current.pageBreak = true;
++                            current = { sectProps: null, elements: [elem], pageBreak: false };
++                            result.push(current);
++                        }
++                        pBreakIndex = -1;
++                    }
+                     if (sectProps || pBreakIndex != -1) {
+                         current.sectProps = sectProps;
+                         current.pageBreak = pBreakIndex != -1;
+@@ -3170,8 +3238,9 @@
+                         let splitRun = rBreakIndex < breakRun.children.length - 1;
+                         if (pBreakIndex < p.children.length - 1 || splitRun) {
+                             var children = elem.children;
+-                            var newParagraph = { ...elem, children: children.slice(pBreakIndex) };
++                            var newParagraph = { ...elem, children: children.slice(pBreakIndex), continuation: true };
+                             elem.children = children.slice(0, pBreakIndex);
++                            elem.continued = true;
+                             current.elements.push(newParagraph);
+                             if (splitRun) {
+                                 let runChildren = breakRun.children;
+@@ -3194,13 +3263,20 @@
+             }
+             return result;
+         }
++        startsNewPage(section, next) {
++            if (!next || next.sectProps === section.sectProps)
++                return false;
++            const type = next.sectProps?.type;
++            return type != "continuous" && type != "nextColumn";
++        }
+         groupByPageBreaks(sections) {
+             let current = [];
+             let prev;
+             const result = [current];
+-            for (let s of sections) {
++            for (let index = 0; index < sections.length; index++) {
++                const s = sections[index];
+                 current.push(s);
+-                if (this.options.ignoreLastRenderedPageBreak || s.pageBreak || this.isPageBreakSection(prev, s.sectProps))
++                if (this.options.ignoreLastRenderedPageBreak || s.pageBreak || this.isPageBreakSection(prev, s.sectProps) || this.startsNewPage(s, sections[index + 1]))
+                     result.push(current = []);
+                 prev = s.sectProps;
+             }
+@@ -3459,6 +3535,14 @@ section.${c}>footer { z-index: 1; }
+             if (numbering) {
+                 result.classList.add(this.numberingClass(numbering.id, numbering.level));
+             }
++            if (elem.continuation) {
++                result.classList.add(`${this.className}-continuation`);
++                result.style.textIndent = "0";
++                result.style.marginTop = "0";
++            }
++            if (elem.continued) {
++                result.style.marginBottom = "0";
++            }
+             return result;
+         }
+         renderRunProperties(style, props) {
+@@ -3517,6 +3601,7 @@ section.${c}>footer { z-index: 1; }
                  return null;
              const frg = new DocumentFragment();
              const commentRefEl = this.createElement("span", { className: `${this.className}-comment-ref` }, ['💬']);
@@ -110,7 +188,7 @@ index d8e0043..81fbbba 100644
              const commentsContainerEl = this.createElement("div", { className: `${this.className}-comment-popover` });
              this.renderCommentContent(comment, commentsContainerEl);
              frg.appendChild(this.createComment(`comment #${comment.id} by ${comment.author} on ${comment.date}`));
-@@ -3528,6 +3582,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3528,6 +3613,7 @@ section.${c}>footer { z-index: 1; }
              if (!this.options.renderAltChunks)
                  return null;
              var result = this.createElement("iframe");
@@ -118,7 +196,7 @@ index d8e0043..81fbbba 100644
              this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
                  result.srcdoc = x;
              }));
-@@ -3579,12 +3634,17 @@ section.${c}>footer { z-index: 1; }
+@@ -3579,12 +3665,17 @@ section.${c}>footer { z-index: 1; }
          }
          renderInserted(elem) {
              if (this.options.renderChanges)
@@ -138,7 +216,7 @@ index d8e0043..81fbbba 100644
              return null;
          }
          renderSymbol(elem) {
-@@ -3703,7 +3763,9 @@ section.${c}>footer { z-index: 1; }
+@@ -3703,7 +3794,9 @@ section.${c}>footer { z-index: 1; }
              return result;
          }
          renderVmlPicture(elem) {
@@ -150,7 +228,7 @@ index d8e0043..81fbbba 100644
          renderVmlElement(elem) {
              var container = this.createSvgElement("svg");
 diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
-index 2691670..d9d831c 100644
+index 2691670..de1a7a0 100644
 --- a/node_modules/docx-preview/dist/docx-preview.mjs
 +++ b/node_modules/docx-preview/dist/docx-preview.mjs
 @@ -1367,7 +1367,12 @@ var autos = {
@@ -257,7 +335,85 @@ index 2691670..d9d831c 100644
      parsePicture(elem) {
          var result = { type: DomType.Image, src: "", cssStyle: {} };
          var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3513,6 +3566,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3130,6 +3183,12 @@ class HtmlRenderer {
+             || prev.pageSize?.width != next.pageSize?.width
+             || prev.pageSize?.height != next.pageSize?.height;
+     }
++    breaksAtStart(paragraph, runIndex, breakIndex) {
++        const breakRun = paragraph.children[runIndex];
++        if (breakRun.children[breakIndex]?.break != "lastRenderedPageBreak")
++            return false;
++        return breakIndex == 0 && paragraph.children.slice(0, runIndex).every(c => !c.children?.length);
++    }
+     splitBySection(elements, defaultProps) {
+         var current = { sectProps: null, elements: [], pageBreak: false };
+         var result = [current];
+@@ -3155,6 +3214,15 @@ class HtmlRenderer {
+                         return rBreakIndex != -1;
+                     });
+                 }
++                if (pBreakIndex != -1 && this.breaksAtStart(p, pBreakIndex, rBreakIndex)) {
++                    if (current.elements.length > 1) {
++                        current.elements.pop();
++                        current.pageBreak = true;
++                        current = { sectProps: null, elements: [elem], pageBreak: false };
++                        result.push(current);
++                    }
++                    pBreakIndex = -1;
++                }
+                 if (sectProps || pBreakIndex != -1) {
+                     current.sectProps = sectProps;
+                     current.pageBreak = pBreakIndex != -1;
+@@ -3166,8 +3234,9 @@ class HtmlRenderer {
+                     let splitRun = rBreakIndex < breakRun.children.length - 1;
+                     if (pBreakIndex < p.children.length - 1 || splitRun) {
+                         var children = elem.children;
+-                        var newParagraph = { ...elem, children: children.slice(pBreakIndex) };
++                        var newParagraph = { ...elem, children: children.slice(pBreakIndex), continuation: true };
+                         elem.children = children.slice(0, pBreakIndex);
++                        elem.continued = true;
+                         current.elements.push(newParagraph);
+                         if (splitRun) {
+                             let runChildren = breakRun.children;
+@@ -3190,13 +3259,20 @@ class HtmlRenderer {
+         }
+         return result;
+     }
++    startsNewPage(section, next) {
++        if (!next || next.sectProps === section.sectProps)
++            return false;
++        const type = next.sectProps?.type;
++        return type != "continuous" && type != "nextColumn";
++    }
+     groupByPageBreaks(sections) {
+         let current = [];
+         let prev;
+         const result = [current];
+-        for (let s of sections) {
++        for (let index = 0; index < sections.length; index++) {
++            const s = sections[index];
+             current.push(s);
+-            if (this.options.ignoreLastRenderedPageBreak || s.pageBreak || this.isPageBreakSection(prev, s.sectProps))
++            if (this.options.ignoreLastRenderedPageBreak || s.pageBreak || this.isPageBreakSection(prev, s.sectProps) || this.startsNewPage(s, sections[index + 1]))
+                 result.push(current = []);
+             prev = s.sectProps;
+         }
+@@ -3455,6 +3531,14 @@ section.${c}>footer { z-index: 1; }
+         if (numbering) {
+             result.classList.add(this.numberingClass(numbering.id, numbering.level));
+         }
++        if (elem.continuation) {
++            result.classList.add(`${this.className}-continuation`);
++            result.style.textIndent = "0";
++            result.style.marginTop = "0";
++        }
++        if (elem.continued) {
++            result.style.marginBottom = "0";
++        }
+         return result;
+     }
+     renderRunProperties(style, props) {
+@@ -3513,6 +3597,7 @@ section.${c}>footer { z-index: 1; }
              return null;
          const frg = new DocumentFragment();
          const commentRefEl = this.createElement("span", { className: `${this.className}-comment-ref` }, ['💬']);
@@ -265,7 +421,7 @@ index 2691670..d9d831c 100644
          const commentsContainerEl = this.createElement("div", { className: `${this.className}-comment-popover` });
          this.renderCommentContent(comment, commentsContainerEl);
          frg.appendChild(this.createComment(`comment #${comment.id} by ${comment.author} on ${comment.date}`));
-@@ -3524,6 +3578,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3524,6 +3609,7 @@ section.${c}>footer { z-index: 1; }
          if (!this.options.renderAltChunks)
              return null;
          var result = this.createElement("iframe");
@@ -273,7 +429,7 @@ index 2691670..d9d831c 100644
          this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
              result.srcdoc = x;
          }));
-@@ -3575,12 +3630,17 @@ section.${c}>footer { z-index: 1; }
+@@ -3575,12 +3661,17 @@ section.${c}>footer { z-index: 1; }
      }
      renderInserted(elem) {
          if (this.options.renderChanges)
@@ -293,7 +449,7 @@ index 2691670..d9d831c 100644
          return null;
      }
      renderSymbol(elem) {
-@@ -3699,8 +3759,10 @@ section.${c}>footer { z-index: 1; }
+@@ -3699,8 +3790,10 @@ section.${c}>footer { z-index: 1; }
          return result;
      }
      renderVmlPicture(elem) {

@@ -615,6 +615,11 @@ async function renderVisual(arrayBuffer: ArrayBuffer): Promise<void> {
     useBase64URL: true,
     trimXmlDeclaration: true,
     experimental: true,
+    // Follow the page breaks Word recorded when it last laid the document out,
+    // so a page here is a page there. The patched docx-preview moves a paragraph
+    // that starts a page instead of leaving an empty copy behind, and does not
+    // number the second half of a split list item again.
+    ignoreLastRenderedPageBreak: false,
   };
 
   try {
@@ -642,6 +647,14 @@ async function renderVisual(arrayBuffer: ArrayBuffer): Promise<void> {
       throw new Error(`[Attempt 1]: ${firstMsg}\n[Attempt 2]: ${secondMsg}`);
     }
   }
+  // The second half of a paragraph split across pages keeps its list's
+  // indentation but is not a new item: no marker, and no step of the counter.
+  // Kept beside docx-preview's own styles so the printable export carries it.
+  const continuation = document.createElement('style');
+  continuation.textContent = `.${options.className}-continuation::before { content: none !important; }
+.${options.className}-continuation { list-style-type: none !important; }`;
+  styleEl.appendChild(continuation);
+
   // docx-preview copies a hyperlink's target into href exactly as the document
   // states it. Text mode is sanitized by DOMPurify; this is the same rule for
   // the page layout, so a link that could never be followed does not look as
