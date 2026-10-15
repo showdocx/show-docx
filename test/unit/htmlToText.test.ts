@@ -221,6 +221,89 @@ describe('Diff text: tables', () => {
   });
 });
 
+describe('Diff text: what the document says stays text', () => {
+  const bs = String.fromCharCode(0x5c);
+
+  it('does not turn a paragraph into a heading, a quote or a list', () => {
+    assert.equal(htmlToText('<p># of items</p>'), `${bs}# of items\n`);
+    assert.equal(htmlToText('<p>&gt; quoted</p>'), `${bs}> quoted\n`);
+    assert.equal(htmlToText('<p>- not a bullet</p>'), `${bs}- not a bullet\n`);
+    assert.equal(htmlToText('<p>+ neither</p>'), `${bs}+ neither\n`);
+    assert.equal(htmlToText('<p>1. Typed by hand</p>'), `1${bs}. Typed by hand\n`);
+    assert.equal(htmlToText('<p>2) Also typed</p>'), `2${bs}) Also typed\n`);
+  });
+
+  it('does not let a line under a line break become a setext underline or a rule', () => {
+    assert.equal(htmlToText('<p>Title<br />====</p>'), `Title\n${bs}====\n`);
+    assert.equal(htmlToText('<p>Title<br />--</p>'), `Title\n${bs}--\n`);
+    assert.equal(htmlToText('<p>- - -</p>'), `${bs}- - -\n`);
+  });
+
+  it('leaves a line that only looks like a block start alone', () => {
+    assert.equal(htmlToText('<p>#hashtag</p>'), '#hashtag\n');
+    assert.equal(htmlToText('<p>=== x</p>'), '=== x\n');
+    assert.equal(htmlToText('<p>-1 degrees</p>'), '-1 degrees\n');
+  });
+
+  it('does not turn text into emphasis, code or a strikethrough', () => {
+    assert.equal(htmlToText('<p>2*3*4 = 24</p>'), `2${bs}*3${bs}*4 = 24\n`);
+    assert.equal(htmlToText('<p>run `make`</p>'), `run ${bs}\`make${bs}\`\n`);
+    assert.equal(htmlToText('<p>~approx~</p>'), `${bs}~approx${bs}~\n`);
+    assert.equal(htmlToText('<p>_underlined_</p>'), `${bs}_underlined${bs}_\n`);
+  });
+
+  it('leaves an underscore inside a word alone, so file names stay readable', () => {
+    assert.equal(htmlToText('<p>see report_final_v2.docx</p>'), 'see report_final_v2.docx\n');
+  });
+
+  it('does not turn text into a tag, a link or an entity', () => {
+    assert.equal(htmlToText('<p>List&lt;String&gt; type</p>'), `List${bs}<String> type\n`);
+    assert.equal(htmlToText('<p>[draft](not-a-link)</p>'), `[draft${bs}](not-a-link)\n`);
+    assert.equal(htmlToText('<p>&amp;copy; stays</p>'), `${bs}&copy; stays\n`);
+    assert.equal(htmlToText('<p>[1]: a definition</p>'), `${bs}[1]: a definition\n`);
+  });
+
+  it('leaves characters that cannot be read as syntax where they stand', () => {
+    assert.equal(htmlToText('<p>2 &lt; 3 and AT&amp;T, C:\\Users</p>'), '2 < 3 and AT&T, C:\\Users\n');
+  });
+
+  it('escapes a backslash only where it would escape something', () => {
+    assert.equal(htmlToText(`<p>a${bs}*b</p>`), `a${bs}${bs}${bs}*b\n`);
+  });
+
+  it('keeps a closing hash in a heading', () => {
+    assert.equal(htmlToText('<h2>Issue #</h2>'), `## Issue ${bs}#\n`);
+    assert.equal(htmlToText('<h2>Using C#</h2>'), '## Using C#\n');
+  });
+
+  it('keeps brackets in a link\'s own text from ending it', () => {
+    assert.equal(
+      htmlToText('<p><a href="https://example.com">see [1]</a></p>'),
+      `[see ${bs}[1${bs}]](https://example.com)\n`,
+    );
+  });
+
+  it('writes a target with spaces or parentheses in angle brackets', () => {
+    assert.equal(
+      htmlToText('<p><a href="file:///C:/My Docs/a (1).pdf">file</a></p>'),
+      '[file](<file:///C:/My Docs/a (1).pdf>)\n',
+    );
+    assert.equal(
+      htmlToText('<p><a href="https://example.com/wiki/A">A</a></p>'),
+      '[A](https://example.com/wiki/A)\n',
+    );
+  });
+
+  it('writes code literally, in a fence longer than any backticks inside it', () => {
+    assert.equal(htmlToText('<p><code>a*b</code></p>'), '`a*b`\n');
+    assert.equal(htmlToText('<p><code>x `y` z</code></p>'), '``x `y` z``\n');
+  });
+
+  it('escapes brackets in an image\'s alternative text', () => {
+    assert.equal(htmlToText('<p><img alt="Chart [Q1]" src="docx-image:00" /></p>'), `![Chart ${bs}[Q1${bs}]](docx-image:00)\n`);
+  });
+});
+
 describe('Diff text: parsing', () => {
   it('decodes the entities mammoth escapes', () => {
     assert.equal(decodeEntities('a &amp; b &lt;c&gt; &quot;d&quot; &#39;e&#39;'), `a & b <c> "d" 'e'`);

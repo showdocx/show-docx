@@ -28,6 +28,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **`showDocx.autoReload` applies to documents that are already open.** It was read once, when a document opened, so turning it off left open documents reloading and turning it on left them stale until they were reopened. Turned back on, an open document also catches up on any change it missed while it was off. ([#76](https://github.com/showdocx/show-docx/issues/76))
 
+- **Markdown says what the document says.** The text was written into the Markdown as it was, so a paragraph beginning with "#" became a heading, "2\*3\*4" came out with an italic 3, "List<String>" vanished as an HTML tag and "[draft](notes)" turned into a link. Exports, the clipboard, the `readDocx` tool, `@docx` and mirrors now escape what Markdown would read as syntax — and only that: prose, `file_names`, "2 < 3" and "AT&T" are unchanged. A link whose target has spaces or parentheses is written so it no longer breaks, and code is written literally. Committed mirrors change once, where their documents hold such characters. ([#67](https://github.com/showdocx/show-docx/issues/67))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed
