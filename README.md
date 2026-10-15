@@ -89,9 +89,9 @@ The API that would put these results in VS Code's own search panel is still prop
 
 Comparing revisions inside the editor is one problem; `git diff` in a terminal and a pull request on GitHub are another, and both see a Word document as `Binary files differ`. **ShowDocx: Write Markdown Mirrors** writes a `.md` copy of each document, meant to be committed alongside it, so those tools can read what changed.
 
-ShowDocx **never creates a mirror on its own.** Creating them is the command above, which says how many and where before writing anything. Setting `showDocx.markdownMirror` to `onChange` keeps mirrors that already exist up to date when their documents change; it will not add new files. `showDocx.markdownMirrorDirectory` puts them somewhere other than beside the document.
+ShowDocx **never creates a mirror on its own.** Creating them is the command above, which says how many and where before writing anything. Setting `showDocx.markdownMirror` to `onChange` keeps mirrors that already exist up to date when their documents change; it will not add new files. `showDocx.markdownMirrorDirectory` puts them somewhere other than beside the document, inside the workspace folder.
 
-Each mirror opens with a comment naming the document it came from, so nobody meeting one in a review has to guess.
+Each mirror opens with a comment naming the document it came from, so nobody meeting one in a review has to guess — and ShowDocx only ever replaces a file that opens with that comment. A hand-written `guide.md` beside `guide.docx` is left alone, and two documents whose mirrors would share a name are both skipped rather than overwriting each other. An empty `.md` file counts as a request for a mirror. In a restricted workspace mirrors are not refreshed, and the workspace's own mirror and export settings are ignored.
 
 ### Comparing revisions
 

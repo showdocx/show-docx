@@ -25,6 +25,7 @@ export default [
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
         Blob: 'readonly',
         URL: 'readonly',
         Buffer: 'readonly',

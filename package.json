@@ -27,7 +27,12 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "ShowDocx renders documents in a sandboxed webview with a strict CSP. In a restricted workspace it will not open links a document points to."
+      "description": "ShowDocx renders documents in a sandboxed webview with a strict CSP. In a restricted workspace it will not open links a document points to, does not refresh Markdown mirrors, and ignores the workspace's own settings for where it writes files.",
+      "restrictedConfigurations": [
+        "showDocx.markdownMirror",
+        "showDocx.markdownMirrorDirectory",
+        "showDocx.exportLocation"
+      ]
     }
   },
   "categories": [
@@ -313,14 +318,14 @@
           ],
           "enumDescriptions": [
             "Do not keep Markdown mirrors up to date.",
-            "Rewrite a mirror when its document changes on disk. Only mirrors that already exist are updated; run \"ShowDocx: Write Markdown Mirrors\" to create them."
+            "Rewrite a mirror when its document changes on disk. Only mirrors that already exist, and that ShowDocx wrote, are updated; run \"ShowDocx: Write Markdown Mirrors\" to create them."
           ],
           "description": "Keep a .md mirror of a document up to date, so git and code review can read what changed in it. ShowDocx never creates a mirror on its own."
         },
         "showDocx.markdownMirrorDirectory": {
           "type": "string",
           "default": "",
-          "description": "Where Markdown mirrors are written, relative to the workspace folder. Empty writes each mirror beside its document."
+          "description": "Where Markdown mirrors are written, relative to the workspace folder. It must stay inside that folder: an absolute path or one containing \"..\" is refused. Empty writes each mirror beside its document."
         }
       }
     },

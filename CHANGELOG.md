@@ -8,6 +8,12 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Links in a document are decided by ShowDocx alone.** VS Code's webview host also listens for link clicks, and opened `http`, `https`, `mailto` and `vscode` links itself, whatever ShowDocx decided — so in a restricted workspace a link could still be followed, and in a trusted one an `https` link opened twice. The viewer now stops every link click before the host sees it. Visual mode also drops any `href` that is neither a fragment nor an external link, as Text mode already did, and HTML a document embeds (`altChunk`) is rendered in a sandboxed frame.
 
+- **Mirrors stay inside the workspace, and a repository's own settings cannot move them.** `showDocx.markdownMirrorDirectory` resolved `..`, so a repository's `.vscode/settings.json` could point mirror refreshes at a file outside the workspace. An absolute path or one containing `..` is now refused, and `showDocx.markdownMirror`, `showDocx.markdownMirrorDirectory` and `showDocx.exportLocation` are declared restricted, so Restricted Mode ignores a workspace's values for them. Mirrors are not refreshed at all in a restricted workspace.
+
+### Fixed
+
+- **A Markdown mirror only replaces a file ShowDocx wrote.** Any `.md` with the expected name counted as a mirror, so with `markdownMirror: onChange` a hand-written `guide.md` beside `guide.docx` was overwritten on the document's next change, and **Write Markdown Mirrors** did the same. A file is now a mirror only when its first line says ShowDocx generated it from that document (an empty file still counts, as a request for one). Two documents whose mirrors would be the same file — `x.docx` beside `x.docm`, or two `spec.docx` with a mirror directory set — are both skipped and reported, where the last one used to win silently. The header now names the document by its path in the workspace, so existing mirrors of documents in subfolders change once on their next refresh. ([#62](https://github.com/showdocx/show-docx/issues/62))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed
