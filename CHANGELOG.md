@@ -24,6 +24,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Renders no longer overlap.** A reload while a render was running, or an export while switching mode, started a second render into the same page, and the slower, older one could be what stayed on screen. Renders and exports now run one after another, and a render the reader has switched away from no longer takes over the screen when it finishes. ([#71](https://github.com/showdocx/show-docx/issues/71))
 
+- **A document whose name has brackets or braces reloads when it changes.** The file name was used as a glob, so `Rapor [v2].docx` meant "Rapor v.docx or Rapor 2.docx" and `notes{1}.docx` meant something else again: changes to the file itself never arrived, and auto-reload, an open comparison and its mirror silently stayed stale. Such a name is now watched through its folder, and only its own changes are acted on. ([#66](https://github.com/showdocx/show-docx/issues/66))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed
