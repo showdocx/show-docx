@@ -18,6 +18,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **The comments and changes panel lists what was actually changed.** Word marks an inserted or deleted paragraph mark — splitting or joining paragraphs with tracking on — with a self-closing `<w:ins/>` or `<w:del/>`, and the panel read it as the start of a change: untouched text up to the next revision was listed as deleted or inserted, under the wrong author, and the real change after it disappeared. Text one reviewer inserted and another deleted is now listed as both. Cards follow their own comment or change rather than the nth one on the page, so one annotation rendered differently no longer sends every later card to the wrong place, and an author such as "Smith & Jones" is no longer shown as `Smith &amp; Jones`. ([#64](https://github.com/showdocx/show-docx/issues/64))
 
+- **Text boxes are counted and found once.** Word stores a text box twice — as DrawingML and again as a VML fallback for older readers — and both copies were read, so every word in a text box was counted twice in the status bar and matched twice by the workspace search. The word count also leaves headers and footers out now, as Word's does. ([#69](https://github.com/showdocx/show-docx/issues/69))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

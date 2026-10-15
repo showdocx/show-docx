@@ -281,7 +281,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       const [properties, structure, text] = await Promise.all([
         readDocumentProperties(data),
         readDocumentStructure(data),
-        extractSearchText(data),
+        // Counted the way Word counts: footnotes and endnotes in, headers and
+        // footers out.
+        extractSearchText(data, { headersAndFooters: false }),
       ]);
       if (entry.disposed) {
         return;

@@ -20,13 +20,28 @@ import { decodeEntities } from './htmlToText';
  * classification usually lives, which is exactly what someone searches for.
  */
 const TEXT_PART = /^word\/(document|footnotes|endnotes|header\d+|footer\d+)\.xml$/;
+const HEADER_OR_FOOTER = /^word\/(header|footer)\d+\.xml$/;
 
-export async function extractSearchText(data: Uint8Array): Promise<string> {
-  const zip = await JSZip.loadAsync(data);
+export interface SearchTextOptions {
+  /**
+   * Whether headers and footers are read. They are for searching; a word count
+   * leaves them out, as Word's does, because they repeat on every page rather
+   * than being part of what the document says.
+   */
+  readonly headersAndFooters?: boolean;
+}
+
+export async function extractSearchText(
+  data: Uint8Array | JSZip,
+  options: SearchTextOptions = {},
+): Promise<string> {
+  const zip = data instanceof JSZip ? data : await JSZip.loadAsync(data);
+  const headersAndFooters = options.headersAndFooters ?? true;
   // The body first, then the rest by name, so the same document always reads
   // the same way and a match keeps the same line number between searches.
   const names = Object.keys(zip.files)
     .filter((name) => TEXT_PART.test(name))
+    .filter((name) => headersAndFooters || !HEADER_OR_FOOTER.test(name))
     .sort(comparePartNames);
 
   const parts: string[] = [];
@@ -50,17 +65,20 @@ function comparePartNames(left: string, right: string): number {
 /**
  * Turns WordprocessingML into one line per paragraph.
  *
- * Two kinds of content are dropped rather than searched:
+ * Three kinds of content are dropped rather than searched:
  *
  * - `w:instrText` holds field codes — the machinery behind a hyperlink or a
  *   table of contents — which the reader never sees.
  * - `w:delText` holds text a tracked change deleted, which the viewer shows as
  *   removed. Matching it would send someone to a line that is not there.
+ * - `mc:Fallback` is the second copy of a text box or shape: Word writes it
+ *   once as DrawingML in `mc:Choice` and again as VML for older readers.
+ *   Reading both counted every word in a text box twice.
  */
 export function xmlToLines(xml: string): string {
-  const text = xml
-    .replaceAll(/<w:instrText\b[^>]*>[\s\S]*?<\/w:instrText>/g, '')
-    .replaceAll(/<w:delText\b[^>]*>[\s\S]*?<\/w:delText>/g, '')
+  const text = removeElements(xml, 'mc:Fallback')
+    .replaceAll(/<w:instrText\b[^>]*?(?:\/>|>[\s\S]*?<\/w:instrText>)/g, '')
+    .replaceAll(/<w:delText\b[^>]*?(?:\/>|>[\s\S]*?<\/w:delText>)/g, '')
     .replaceAll(/<w:tab\b[^>]*\/?>/g, '\t')
     .replaceAll(/<w:br\b[^>]*\/?>/g, '\n')
     .replaceAll(/<\/w:p>/g, '\n')
@@ -71,6 +89,46 @@ export function xmlToLines(xml: string): string {
     .map((line) => line.replaceAll(/[^\S\n]+/g, ' ').trim())
     .filter((line) => line !== '')
     .join('\n');
+}
+
+/**
+ * Removes every element with this name, contents and all. Nesting is counted,
+ * because a text box can hold a shape with a fallback of its own, and stopping
+ * at the first closing tag would leave half the outer one behind.
+ */
+function removeElements(xml: string, name: string): string {
+  if (!xml.includes(`<${name}`)) {
+    return xml;
+  }
+  const tags = new RegExp(`<(/?)${name}\\b[^>]*?(/?)>`, 'g');
+  let output = '';
+  let depth = 0;
+  let keptFrom = 0;
+  for (const match of xml.matchAll(tags)) {
+    const index = match.index ?? 0;
+    const end = index + match[0].length;
+    if (match[1] === '/') {
+      if (depth > 0) {
+        depth -= 1;
+        if (depth === 0) {
+          keptFrom = end;
+        }
+      }
+    } else if (depth === 0) {
+      output += xml.slice(keptFrom, index);
+      if (match[2] === '/') {
+        keptFrom = end;
+      } else {
+        depth = 1;
+        keptFrom = index;
+      }
+    } else if (match[2] !== '/') {
+      depth += 1;
+    }
+  }
+  // An element left open is kept rather than dropped with everything after
+  // it: text read twice is a smaller loss than text not read at all.
+  return output + xml.slice(keptFrom);
 }
 
 export interface TextMatch {
