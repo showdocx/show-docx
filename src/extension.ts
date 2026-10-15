@@ -34,10 +34,14 @@ export function activate(context: vscode.ExtensionContext): ShowDocxTestApi | un
 
   const diffProvider = new DocxDiffContentProvider({
     readWorkingTree: (uri) => provider.readDocument(uri),
-    readAtRef: async (uri, ref) => validateDocxBytes(
-      await readDocxAtRef(uri, ref),
-      provider.maxFileSize,
-    ),
+    readAtRef: async (uri, ref) => {
+      // A comparison restored from an earlier session reaches here without the
+      // command's own check.
+      if (!vscode.workspace.isTrusted) {
+        throw new Error('ShowDocx does not run git in a restricted workspace.');
+      }
+      return validateDocxBytes(await readDocxAtRef(uri, ref), provider.maxFileSize);
+    },
     watch: watchFile,
   });
 
