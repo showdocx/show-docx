@@ -36,6 +36,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **The workspace search keeps to the viewer's size limit.** It read every Word file in the workspace whole, however large, including ones nobody had opened, and kept the text of all of them. A file above `showDocx.maxFileSizeMb` is now skipped without being read, and reported with the unreadable ones; the text kept between searches is bounded, dropping what was searched least recently. ([#70](https://github.com/showdocx/show-docx/issues/70))
 
+- **Extract Images asks before replacing a file.** Extracting a document twice, or two documents with the same name, into one folder silently overwrote the images already there. When a name is taken it now offers to replace them or to keep both, giving the new images numbered names. ([#72](https://github.com/showdocx/show-docx/issues/72))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

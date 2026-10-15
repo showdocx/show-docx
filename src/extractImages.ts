@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { imageName, readMedia } from './text/documentFacts';
+import { freeName, imageName, readMedia } from './text/documentFacts';
 import { stripDocumentExtension } from '../shared/documentExtensions';
 import { getLog } from './log';
 
@@ -49,9 +49,40 @@ export async function extractImages(
     }
 
     const base = path.basename(stripDocumentExtension(source.path));
+    const names = media.map((entry, index) => imageName(base, index, media.length, entry.name));
+    // Compared without case: the file systems most people use ignore it.
+    const inFolder = new Set((await listNames(target)).map((name) => name.toLowerCase()));
+    const clashes = names.filter((name) => inFolder.has(name.toLowerCase()));
+
+    // Extracting the same document twice, or two documents with the same name,
+    // into one folder lands on names already there. Writing over them without
+    // asking is what the export never does either.
+    let keepBoth = false;
+    if (clashes.length > 0) {
+      const count = clashes.length;
+      const choice = await vscode.window.showWarningMessage(
+        `${count} of these image${count === 1 ? '' : 's'} already exist${count === 1 ? 's' : ''} in ${path.basename(target.path)}.`,
+        {
+          modal: true,
+          detail: 'Replace them, or keep both by giving the new images numbered names.',
+        },
+        'Replace',
+        'Keep Both',
+      );
+      if (choice === undefined) {
+        return;
+      }
+      keepBoth = choice === 'Keep Both';
+    }
+
     const written: vscode.Uri[] = [];
     for (const [index, entry] of media.entries()) {
-      const file = vscode.Uri.joinPath(target, imageName(base, index, media.length, entry.name));
+      const planned = names[index] ?? imageName(base, index, media.length, entry.name);
+      const name = keepBoth
+        ? freeName(planned, (candidate) => inFolder.has(candidate.toLowerCase()))
+        : planned;
+      inFolder.add(name.toLowerCase());
+      const file = vscode.Uri.joinPath(target, name);
       await vscode.workspace.fs.writeFile(file, entry.bytes);
       written.push(file);
     }
@@ -68,5 +99,14 @@ export async function extractImages(
   } catch (error: unknown) {
     getLog().error(`Extracting images from ${name} failed.`, error);
     void vscode.window.showErrorMessage(`ShowDocx: could not extract images from ${name}.`);
+  }
+}
+
+/** The names of the files in a folder, or none when it cannot be listed. */
+async function listNames(folder: vscode.Uri): Promise<string[]> {
+  try {
+    return (await vscode.workspace.fs.readDirectory(folder)).map(([name]) => name);
+  } catch {
+    return [];
   }
 }

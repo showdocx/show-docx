@@ -7,6 +7,7 @@ import {
   readDocumentProperties,
   readMedia,
   describeDocument,
+  freeName,
   imageName,
   pageCount,
   readTag,
@@ -73,6 +74,21 @@ describe('Reading a single XML tag', () => {
 
   it('does not confuse a tag with one whose name starts the same', () => {
     assert.equal(readTag('<Pages>4</Pages><PagesPerSheet>2</PagesPerSheet>', 'Pages'), '4');
+  });
+});
+
+describe('Keeping both when a name is taken', () => {
+  it('keeps a name nothing is using', () => {
+    assert.equal(freeName('spec-1.png', () => false), 'spec-1.png');
+  });
+
+  it('numbers the copy before its extension, past every number already used', () => {
+    const taken = new Set(['spec-1.png', 'spec-1 (2).png']);
+    assert.equal(freeName('spec-1.png', (name) => taken.has(name)), 'spec-1 (3).png');
+  });
+
+  it('numbers a name without an extension at its end', () => {
+    assert.equal(freeName('notes', (name) => name === 'notes'), 'notes (2)');
   });
 });
 

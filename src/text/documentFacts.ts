@@ -137,6 +137,26 @@ export function imageName(
 }
 
 /**
+ * A file name nothing is using yet: the name itself, or the same name with
+ * " (2)", " (3)" and so on before its extension — the way a file manager keeps
+ * both when a copy lands on a name that is taken.
+ */
+export function freeName(name: string, isTaken: (candidate: string) => boolean): string {
+  if (!isTaken(name)) {
+    return name;
+  }
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const extension = dot > 0 ? name.slice(dot) : '';
+  for (let copy = 2; ; copy += 1) {
+    const candidate = `${stem} (${copy})${extension}`;
+    if (!isTaken(candidate)) {
+      return candidate;
+    }
+  }
+}
+
+/**
  * Words in a stretch of text.
  *
  * Whitespace-separated, which is what a word count means for the languages this
