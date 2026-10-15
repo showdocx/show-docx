@@ -139,7 +139,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       throw error;
     }
     getLog().info(`Opened ${name} (${data.byteLength} bytes).`);
-    const host = this.createDocumentHost(settings.autoReload);
+    const host = this.createDocumentHost();
     const document = new DocxDocument(uri, data, host);
     if (settings.autoReload) {
       document.startWatching();
@@ -236,11 +236,26 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const settings = this.getSettings();
     for (const entry of this.panels) {
       if (!entry.disposed) {
+        this.applyAutoReload(entry.document, settings.autoReload);
         void entry.panel.webview.postMessage({
           type: 'settingsChanged',
           settings,
         });
       }
+    }
+  }
+
+  /**
+   * Starts or stops watching a document that is already open, so the setting
+   * means the same for it as for one opened after the change. Turned back on,
+   * it catches up on whatever changed while it was off.
+   */
+  private applyAutoReload(document: DocxDocument, autoReload: boolean): void {
+    if (autoReload && !document.watching) {
+      document.startWatching();
+      void document.reload({ onlyIfChanged: true });
+    } else if (!autoReload && document.watching) {
+      document.stopWatching();
     }
   }
 
@@ -716,12 +731,10 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     await vscode.env.openExternal(uri);
   }
 
-  private createDocumentHost(enableWatch: boolean): DocxDocumentHost {
+  private createDocumentHost(): DocxDocumentHost {
     return {
       readFile: (uri) => this.readDocument(uri),
-      watch: (uri, onChange) => (enableWatch
-        ? watchFile(uri, onChange)
-        : { dispose: () => undefined }),
+      watch: (uri, onChange) => watchFile(uri, onChange),
     };
   }
 

@@ -65,6 +65,10 @@ export class DocxDocument implements vscode.CustomDocument {
     return this.dataValue;
   }
 
+  public get watching(): boolean {
+    return this.watcher !== undefined;
+  }
+
   public startWatching(): void {
     if (this.watcher || this.disposed) {
       return;
@@ -74,7 +78,17 @@ export class DocxDocument implements vscode.CustomDocument {
     });
   }
 
-  public async reload(): Promise<void> {
+  public stopWatching(): void {
+    this.watcher?.dispose();
+    this.watcher = undefined;
+  }
+
+  /**
+   * Reads the file again and reports the new contents. With `onlyIfChanged`,
+   * contents identical to what is already shown are not reported — for
+   * catching up after watching resumes, when nothing may have changed at all.
+   */
+  public async reload(options: { readonly onlyIfChanged?: boolean } = {}): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -91,6 +105,9 @@ export class DocxDocument implements vscode.CustomDocument {
           const data = await this.host.readFile(this.uri);
           if (this.disposed) {
             return;
+          }
+          if (options.onlyIfChanged && sameBytes(data, this.dataValue)) {
+            continue;
           }
           this.dataValue = data;
           this.changeEmitter.fire(data);
@@ -110,9 +127,20 @@ export class DocxDocument implements vscode.CustomDocument {
       return;
     }
     this.disposed = true;
-    this.watcher?.dispose();
-    this.watcher = undefined;
+    this.stopWatching();
     this.changeEmitter.dispose();
     this.errorEmitter.dispose();
   }
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) {
+    return false;
+  }
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
 }

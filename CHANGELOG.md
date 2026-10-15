@@ -26,6 +26,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **A document whose name has brackets or braces reloads when it changes.** The file name was used as a glob, so `Rapor [v2].docx` meant "Rapor v.docx or Rapor 2.docx" and `notes{1}.docx` meant something else again: changes to the file itself never arrived, and auto-reload, an open comparison and its mirror silently stayed stale. Such a name is now watched through its folder, and only its own changes are acted on. ([#66](https://github.com/showdocx/show-docx/issues/66))
 
+- **`showDocx.autoReload` applies to documents that are already open.** It was read once, when a document opened, so turning it off left open documents reloading and turning it on left them stale until they were reopened. Turned back on, an open document also catches up on any change it missed while it was off. ([#76](https://github.com/showdocx/show-docx/issues/76))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed
