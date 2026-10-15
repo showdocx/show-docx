@@ -154,7 +154,8 @@ export interface IncomingMessage {
   page?: number;
   structure?: DocumentStructure;
   reload?: boolean;
-  data?: string;
+  /** The document bytes: binary from VS Code, base64 from an older host or a test. */
+  data?: string | Uint8Array | ArrayBuffer;
   index?: number;
   totalChunks?: number;
   message?: string;

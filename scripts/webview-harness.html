@@ -114,6 +114,28 @@
           return;
         }
 
+        // How VS Code delivers it: bytes rather than base64, one message for a
+        // small document and chunks of their own buffer for a large one.
+        if (params.get('transfer') === 'binary') {
+          dispatch({ type: 'document', ...meta, data: bytes.slice() });
+          return;
+        }
+        if (params.get('transfer') === 'binary-chunks') {
+          const chunkSize = 1024;
+          const totalChunks = Math.ceil(bytes.byteLength / chunkSize);
+          dispatch({ type: 'documentStart', ...meta, totalChunks });
+          for (let index = 0; index < totalChunks; index += 1) {
+            dispatch({
+              type: 'documentChunk',
+              transferId: 1,
+              index,
+              data: bytes.slice(index * chunkSize, (index + 1) * chunkSize)
+            });
+          }
+          dispatch({ type: 'documentEnd', transferId: 1 });
+          return;
+        }
+
         if (params.get('transfer') === 'chunks') {
           const chunkSize = 1024;
           const totalChunks = Math.ceil(bytes.byteLength / chunkSize);

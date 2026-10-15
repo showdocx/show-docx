@@ -11,7 +11,18 @@ import { registerChatParticipant } from './lm/chatParticipant';
 import { registerReadDocxTool } from './lm/readDocxTool';
 import { watchFile } from './watchFile';
 
-export function activate(context: vscode.ExtensionContext): void {
+/**
+ * What the integration tests can ask of a running extension: whether a real
+ * webview, in a real VS Code, received a document and rendered it. Nothing
+ * else can see inside the webview, and the harness the webview tests use is
+ * not VS Code. Returned only in test mode, so it is no API anyone can rely on.
+ */
+export interface ShowDocxTestApi {
+  /** Resolves with the pages rendered, once the viewer of this document reports them. */
+  whenRendered(uri: vscode.Uri): Promise<number>;
+}
+
+export function activate(context: vscode.ExtensionContext): ShowDocxTestApi | undefined {
   const log = getLog();
   log.info('ShowDocx activated.');
   const provider = DocxEditorProvider.register(context);
@@ -152,6 +163,20 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
   );
+
+  if (context.extensionMode !== vscode.ExtensionMode.Test) {
+    return undefined;
+  }
+  return {
+    whenRendered: (uri) => new Promise<number>((resolve) => {
+      const subscription = provider.onDidRender((event) => {
+        if (event.uri.toString() === uri.toString()) {
+          subscription.dispose();
+          resolve(event.pages);
+        }
+      });
+    }),
+  };
 }
 
 export function deactivate(): void {

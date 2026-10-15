@@ -167,15 +167,25 @@ export class SearchController {
     // Wrap each match's per-node segments. Segments inside one node are wrapped
     // last-first so the offsets of the earlier ones stay valid as splitText
     // reshapes the node.
+    //
+    // Slices and matches are both in document order, so one pass over each
+    // finds every overlap: a match that ends inside a slice is done with, and
+    // the next slice starts from the first match not yet finished. Comparing
+    // every match with every slice was 2,000 matches times every text node on
+    // each keystroke.
     const groups: MatchGroup[] = ranges.map(() => []);
+    let first = 0;
     for (const slice of slices) {
       const sliceEnd = slice.start + slice.text.length;
       const segments: Array<{ group: number; from: number; to: number }> = [];
 
-      for (let index = 0; index < ranges.length; index += 1) {
+      while (first < ranges.length && (ranges[first]?.end ?? 0) <= slice.start) {
+        first += 1;
+      }
+      for (let index = first; index < ranges.length; index += 1) {
         const range = ranges[index];
-        if (!range || range.end <= slice.start || range.start >= sliceEnd) {
-          continue;
+        if (!range || range.start >= sliceEnd) {
+          break;
         }
         segments.push({
           group: index,

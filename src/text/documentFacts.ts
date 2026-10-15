@@ -60,8 +60,8 @@ const APP_FIELDS: Record<string, keyof DocumentProperties> = {
   Company: 'company',
 };
 
-export async function readDocumentProperties(data: Uint8Array): Promise<DocumentProperties> {
-  const zip = await JSZip.loadAsync(data);
+export async function readDocumentProperties(data: Uint8Array | JSZip): Promise<DocumentProperties> {
+  const zip = data instanceof JSZip ? data : await JSZip.loadAsync(data);
   const core = await readPart(zip, 'docProps/core.xml');
   const app = await readPart(zip, 'docProps/app.xml');
 

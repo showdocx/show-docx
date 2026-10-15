@@ -38,6 +38,10 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Extract Images asks before replacing a file.** Extracting a document twice, or two documents with the same name, into one folder silently overwrote the images already there. When a name is taken it now offers to replace them or to keep both, giving the new images numbered names. ([#72](https://github.com/showdocx/show-docx/issues/72))
 
+### Changed
+
+- **Less work to open a document.** The document reaches the viewer as bytes rather than base64 — a third less to send, and nothing to encode or decode — and the extension host unzips it once, where it used to unzip it three times to read its properties, structure and word count. Text mode checks for tracked changes alongside the conversion instead of before it, and the in-document search maps its matches in one pass over the page rather than comparing every match with every piece of text on each keystroke. ([#73](https://github.com/showdocx/show-docx/issues/73))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

@@ -27,6 +27,14 @@ test('reassembles chunked transfers', async ({ page }) => {
   await expect(page.locator('#loading')).toBeHidden();
 });
 
+for (const transfer of ['binary', 'binary-chunks']) {
+  test(`accepts a document sent as bytes (${transfer})`, async ({ page }) => {
+    await page.goto(`/scripts/webview-harness.html?transfer=${transfer}&mode=text`);
+    await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');
+    await expect(page.locator('#loading')).toBeHidden();
+  });
+}
+
 test('exports sanitized HTML and invokes print', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html?mode=text');
   await expect(page.locator('#text-container')).toContainText('ShowDocx Sample');

@@ -50,8 +50,8 @@ export interface DocumentStructure {
   readonly revisions: DocumentRevision[];
 }
 
-export async function readDocumentStructure(data: Uint8Array): Promise<DocumentStructure> {
-  const zip = await JSZip.loadAsync(data);
+export async function readDocumentStructure(data: Uint8Array | JSZip): Promise<DocumentStructure> {
+  const zip = data instanceof JSZip ? data : await JSZip.loadAsync(data);
   const [styles, body, comments, extended] = await Promise.all([
     readPart(zip, 'word/styles.xml'),
     readPart(zip, 'word/document.xml'),

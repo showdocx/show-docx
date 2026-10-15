@@ -8,6 +8,11 @@ export async function run(): Promise<void> {
     timeout: 20_000,
     ui: 'bdd',
   });
+  // SHOWDOCX_TEST_GREP=pattern runs only the matching tests, as mocha's --grep would.
+  const grep = process.env.SHOWDOCX_TEST_GREP;
+  if (grep) {
+    mocha.grep(grep);
+  }
   const testsDirectory = dirname(dirname(__filename));
   const testFiles = await findTests(testsDirectory);
   for (const file of testFiles) {

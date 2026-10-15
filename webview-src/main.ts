@@ -257,7 +257,7 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
         const meta = readDocumentMeta(message);
         // A single-message document supersedes any transfer still in flight.
         clearTransfer();
-        await acceptDocument(decodeBase64(message.data), meta);
+        await acceptDocument(toBytes(message.data), meta);
       }
       break;
     case 'documentStart': {
@@ -370,7 +370,7 @@ function receiveChunk(message: IncomingMessage): void {
     return;
   }
 
-  chunkTransfer.chunks[message.index] = decodeBase64(message.data);
+  chunkTransfer.chunks[message.index] = toBytes(message.data);
   armTransferWatchdog();
   const received = chunkTransfer.chunks.filter(Boolean).length;
   const percent = 5 + Math.round((received / chunkTransfer.totalChunks) * 45);
@@ -461,7 +461,7 @@ async function acceptDocument(bytes: Uint8Array, meta: DocumentMeta): Promise<vo
   state.applyInitialState(settings, meta.savedState);
   applyPageTheme(state.value.pageTheme);
   currentMeta = meta;
-  // decodeBase64 and joinChunks both hand over a Uint8Array that owns its whole
+  // toBytes and joinChunks normally hand over a Uint8Array that owns its whole
   // buffer, so the common path needs no copy at all. Copy only a partial view.
   currentBuffer = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
     ? bytes.buffer as ArrayBuffer
@@ -742,9 +742,12 @@ async function renderText(arrayBuffer: ArrayBuffer): Promise<void> {
   // mammoth drops w:del runs and inlines w:ins runs without reporting either, so
   // the text view silently differs from the visual view. Detect the markup here
   // and say so rather than letting the content change without explanation.
-  const trackedChanges = await hasTrackedChanges(arrayBuffer);
-
-  const result = await mammoth.convertToHtml({ arrayBuffer }, options);
+  // The check reads the package on its own, so it runs alongside the
+  // conversion rather than before it.
+  const [trackedChanges, result] = await Promise.all([
+    hasTrackedChanges(arrayBuffer),
+    mammoth.convertToHtml({ arrayBuffer }, options),
+  ]);
   exportedTextHtml = DOMPurify.sanitize(result.value, {
     USE_PROFILES: { html: true },
   });
@@ -973,6 +976,17 @@ function readDocumentMeta(message: IncomingMessage): DocumentMeta {
     savedState: message.savedState,
     reload: message.reload ?? false,
   };
+}
+
+/**
+ * The document bytes as they arrived. VS Code delivers a Uint8Array, with no
+ * encoding in between; base64 is still read, from a host or test that sends it.
+ */
+function toBytes(value: string | Uint8Array | ArrayBuffer): Uint8Array {
+  if (typeof value === 'string') {
+    return decodeBase64(value);
+  }
+  return value instanceof Uint8Array ? value : new Uint8Array(value);
 }
 
 function decodeBase64(value: string): Uint8Array {

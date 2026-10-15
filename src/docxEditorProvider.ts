@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import JSZip from 'jszip';
 import * as vscode from 'vscode';
 import { DocxDocument, type DocxDocumentHost } from './docxDocument';
 import {
@@ -60,6 +61,27 @@ interface WebviewMessage {
   transferId?: number;
 }
 
+/**
+ * Bytes as a plain Uint8Array on a buffer of their own, for postMessage.
+ *
+ * VS Code sends typed arrays to a webview as binary — no base64, no third more
+ * to send and decode — with two conditions, both found the hard way:
+ *
+ * - It recognises a typed array by its constructor's name, so a Node Buffer,
+ *   which is what reading a file returns, is not one: it is turned into JSON
+ *   and arrives empty.
+ * - It sends the whole ArrayBuffer behind a view. A 1 MB chunk that is a view
+ *   of a 100 MB document would send all 100 MB, every time.
+ *
+ * So a view is copied, and anything else is re-wrapped without copying.
+ */
+function ownBuffer(view: Uint8Array): Uint8Array {
+  if (view.byteOffset === 0 && view.byteLength === view.buffer.byteLength) {
+    return view.constructor === Uint8Array ? view : new Uint8Array(view.buffer, 0, view.byteLength);
+  }
+  return new Uint8Array(view);
+}
+
 interface ExportOptions {
   readonly extension: string;
   readonly filters: Record<string, string[]>;
@@ -94,6 +116,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private transferSequence = 0;
   private readonly documentState: DocumentStateStore;
   private readonly statusBar = new DocumentStatusBar();
+  /** Fires when a viewer reports how many pages it rendered for a document. */
+  private readonly renderedEmitter = new vscode.EventEmitter<{ uri: vscode.Uri; pages: number }>();
+  public readonly onDidRender = this.renderedEmitter.event;
 
   public static register(context: vscode.ExtensionContext): DocxEditorProvider {
     const provider = new DocxEditorProvider(context);
@@ -267,6 +292,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     this.panels.clear();
     this.activeEntry = undefined;
     this.statusBar.dispose();
+    this.renderedEmitter.dispose();
   }
 
   /** What the focused document says about itself, for the properties command. */
@@ -300,13 +326,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
    */
   private async readFacts(entry: PanelEntry, transferId: number): Promise<void> {
     try {
-      const data = entry.document.data;
+      // Opened once and read three ways, rather than unzipped by each reader.
+      const zip = await JSZip.loadAsync(entry.document.data);
       const [properties, structure, text] = await Promise.all([
-        readDocumentProperties(data),
-        readDocumentStructure(data),
+        readDocumentProperties(zip),
+        readDocumentStructure(zip),
         // Counted the way Word counts: footnotes and endnotes in, headers and
         // footers out.
-        extractSearchText(data, { headersAndFooters: false }),
+        extractSearchText(zip, { headersAndFooters: false }),
       ]);
       if (entry.disposed || entry.transferId !== transferId) {
         return;
@@ -384,6 +411,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         ) {
           entry.renderedPages = message.pages;
           this.refreshStatusBar();
+          this.renderedEmitter.fire({ uri: entry.document.uri, pages: message.pages });
         }
         break;
       case 'copySelection':
@@ -452,7 +480,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       await entry.panel.webview.postMessage({
         type: 'document',
         ...meta,
-        data: Buffer.from(data).toString('base64'),
+        data: ownBuffer(data),
       });
       return;
     }
@@ -480,7 +508,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         type: 'documentChunk',
         transferId,
         index,
-        data: Buffer.from(chunk).toString('base64'),
+        data: ownBuffer(chunk),
       })) {
         await this.abortTransfer(entry, meta.fileName);
         return;
