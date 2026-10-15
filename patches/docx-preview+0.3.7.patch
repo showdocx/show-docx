@@ -1,5 +1,5 @@
 diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
-index d8e0043..d7bac7e 100644
+index d8e0043..9f273df 100644
 --- a/node_modules/docx-preview/dist/docx-preview.js
 +++ b/node_modules/docx-preview/dist/docx-preview.js
 @@ -1371,7 +1371,12 @@
@@ -40,7 +40,7 @@ index d8e0043..d7bac7e 100644
                  switch (c.localName) {
                      case "t":
                          result.children.push({
-@@ -2122,13 +2131,57 @@
+@@ -2122,13 +2131,110 @@
          parseGraphic(elem) {
              var graphicData = globalXmlParser.element(elem, "graphicData");
              for (let n of globalXmlParser.elements(graphicData)) {
@@ -53,7 +53,48 @@ index d8e0043..d7bac7e 100644
 +            }
 +            return null;
 +        }
-+        parseGraphicElement(elem) {
++        groupTransform(group) {
++            var grpSpPr = globalXmlParser.element(group, "grpSpPr");
++            var xfrm = grpSpPr && globalXmlParser.element(grpSpPr, "xfrm");
++            if (!xfrm)
++                return group.localName == "wpc" ? { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1 } : null;
++            var ext = globalXmlParser.element(xfrm, "ext");
++            var chOff = globalXmlParser.element(xfrm, "chOff");
++            var chExt = globalXmlParser.element(xfrm, "chExt");
++            var cx = ext ? globalXmlParser.intAttr(ext, "cx", 0) : 0;
++            var cy = ext ? globalXmlParser.intAttr(ext, "cy", 0) : 0;
++            var childCx = chExt ? globalXmlParser.intAttr(chExt, "cx", cx) : cx;
++            var childCy = chExt ? globalXmlParser.intAttr(chExt, "cy", cy) : cy;
++            return {
++                width: cx / 12700,
++                height: cy / 12700,
++                offsetX: chOff ? globalXmlParser.intAttr(chOff, "x", 0) : 0,
++                offsetY: chOff ? globalXmlParser.intAttr(chOff, "y", 0) : 0,
++                scaleX: childCx ? cx / childCx : 1,
++                scaleY: childCy ? cy / childCy : 1
++            };
++        }
++        placeInGroup(item, source, group) {
++            if (!group || !item)
++                return;
++            var properties = globalXmlParser.element(source, "spPr") ?? globalXmlParser.element(source, "grpSpPr");
++            var xfrm = properties && globalXmlParser.element(properties, "xfrm");
++            if (!xfrm)
++                return;
++            var off = globalXmlParser.element(xfrm, "off");
++            var ext = globalXmlParser.element(xfrm, "ext");
++            item.cssStyle ?? (item.cssStyle = {});
++            item.cssStyle["position"] = "absolute";
++            if (off) {
++                item.cssStyle["left"] = `${(globalXmlParser.intAttr(off, "x", 0) - group.offsetX) * group.scaleX / 12700}pt`;
++                item.cssStyle["top"] = `${(globalXmlParser.intAttr(off, "y", 0) - group.offsetY) * group.scaleY / 12700}pt`;
++            }
++            if (ext) {
++                item.cssStyle["width"] = `${globalXmlParser.intAttr(ext, "cx", 0) * group.scaleX / 12700}pt`;
++                item.cssStyle["height"] = `${globalXmlParser.intAttr(ext, "cy", 0) * group.scaleY / 12700}pt`;
++            }
++        }
++        parseGraphicElement(elem, depth = 0) {
 +            switch (elem.localName) {
 +                case "pic":
 +                    return this.parsePicture(elem);
@@ -61,17 +102,29 @@ index d8e0043..d7bac7e 100644
 +                    return this.parseWsp(elem);
 +                case "wgp":
 +                case "wpc":
++                    if (depth > 16)
++                        return null;
++                    var group = this.groupTransform(elem);
 +                    var children = [];
 +                    for (let child of globalXmlParser.elements(elem)) {
-+                        var parsed = this.parseGraphicElement(child);
++                        var parsed = this.parseGraphicElement(child, depth + 1);
 +                        if (parsed) {
-+                            if (Array.isArray(parsed)) children.push(...parsed);
-+                            else children.push(parsed);
++                            for (let item of Array.isArray(parsed) ? parsed : [parsed]) {
++                                this.placeInGroup(item, child, group);
++                                children.push(item);
++                            }
 +                        }
++                    }
++                    var groupStyle = {};
++                    if (group) {
++                        groupStyle["position"] = "relative";
++                        groupStyle["width"] = group.width ? `${group.width}pt` : "100%";
++                        groupStyle["height"] = group.height ? `${group.height}pt` : "100%";
 +                    }
 +                    return {
 +                        type: DomType.VmlPicture,
-+                        children: children
++                        children: children,
++                        cssStyle: groupStyle
 +                    };
              }
              return null;
@@ -102,7 +155,7 @@ index d8e0043..d7bac7e 100644
          parsePicture(elem) {
              var result = { type: DomType.Image, src: "", cssStyle: {} };
              var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3134,6 +3187,12 @@
+@@ -3134,6 +3240,12 @@
                  || prev.pageSize?.width != next.pageSize?.width
                  || prev.pageSize?.height != next.pageSize?.height;
          }
@@ -115,7 +168,7 @@ index d8e0043..d7bac7e 100644
          splitBySection(elements, defaultProps) {
              var current = { sectProps: null, elements: [], pageBreak: false };
              var result = [current];
-@@ -3159,6 +3218,15 @@
+@@ -3159,6 +3271,15 @@
                              return rBreakIndex != -1;
                          });
                      }
@@ -131,7 +184,7 @@ index d8e0043..d7bac7e 100644
                      if (sectProps || pBreakIndex != -1) {
                          current.sectProps = sectProps;
                          current.pageBreak = pBreakIndex != -1;
-@@ -3170,8 +3238,9 @@
+@@ -3170,8 +3291,9 @@
                          let splitRun = rBreakIndex < breakRun.children.length - 1;
                          if (pBreakIndex < p.children.length - 1 || splitRun) {
                              var children = elem.children;
@@ -142,7 +195,7 @@ index d8e0043..d7bac7e 100644
                              current.elements.push(newParagraph);
                              if (splitRun) {
                                  let runChildren = breakRun.children;
-@@ -3194,13 +3263,20 @@
+@@ -3194,13 +3316,20 @@
              }
              return result;
          }
@@ -165,7 +218,7 @@ index d8e0043..d7bac7e 100644
                      result.push(current = []);
                  prev = s.sectProps;
              }
-@@ -3459,6 +3535,14 @@ section.${c}>footer { z-index: 1; }
+@@ -3459,6 +3588,14 @@ section.${c}>footer { z-index: 1; }
              if (numbering) {
                  result.classList.add(this.numberingClass(numbering.id, numbering.level));
              }
@@ -180,7 +233,7 @@ index d8e0043..d7bac7e 100644
              return result;
          }
          renderRunProperties(style, props) {
-@@ -3517,6 +3601,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3517,6 +3654,7 @@ section.${c}>footer { z-index: 1; }
                  return null;
              const frg = new DocumentFragment();
              const commentRefEl = this.createElement("span", { className: `${this.className}-comment-ref` }, ['💬']);
@@ -188,7 +241,7 @@ index d8e0043..d7bac7e 100644
              const commentsContainerEl = this.createElement("div", { className: `${this.className}-comment-popover` });
              this.renderCommentContent(comment, commentsContainerEl);
              frg.appendChild(this.createComment(`comment #${comment.id} by ${comment.author} on ${comment.date}`));
-@@ -3528,6 +3613,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3528,6 +3666,7 @@ section.${c}>footer { z-index: 1; }
              if (!this.options.renderAltChunks)
                  return null;
              var result = this.createElement("iframe");
@@ -196,7 +249,7 @@ index d8e0043..d7bac7e 100644
              this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
                  result.srcdoc = x;
              }));
-@@ -3579,12 +3665,17 @@ section.${c}>footer { z-index: 1; }
+@@ -3579,12 +3718,17 @@ section.${c}>footer { z-index: 1; }
          }
          renderInserted(elem) {
              if (this.options.renderChanges)
@@ -216,7 +269,7 @@ index d8e0043..d7bac7e 100644
              return null;
          }
          renderSymbol(elem) {
-@@ -3703,7 +3794,9 @@ section.${c}>footer { z-index: 1; }
+@@ -3703,7 +3847,9 @@ section.${c}>footer { z-index: 1; }
              return result;
          }
          renderVmlPicture(elem) {
@@ -228,7 +281,7 @@ index d8e0043..d7bac7e 100644
          renderVmlElement(elem) {
              var container = this.createSvgElement("svg");
 diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
-index 2691670..de1a7a0 100644
+index 2691670..a209337 100644
 --- a/node_modules/docx-preview/dist/docx-preview.mjs
 +++ b/node_modules/docx-preview/dist/docx-preview.mjs
 @@ -1367,7 +1367,12 @@ var autos = {
@@ -269,7 +322,7 @@ index 2691670..de1a7a0 100644
              switch (c.localName) {
                  case "t":
                      result.children.push({
-@@ -2116,15 +2125,59 @@ class DocumentParser {
+@@ -2116,15 +2125,112 @@ class DocumentParser {
          return result;
      }
      parseGraphic(elem) {
@@ -286,7 +339,48 @@ index 2691670..de1a7a0 100644
 +    }
 +    return null;
 +}
-+    parseGraphicElement(elem) {
++    groupTransform(group) {
++        var grpSpPr = globalXmlParser.element(group, "grpSpPr");
++        var xfrm = grpSpPr && globalXmlParser.element(grpSpPr, "xfrm");
++        if (!xfrm)
++            return group.localName == "wpc" ? { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1 } : null;
++        var ext = globalXmlParser.element(xfrm, "ext");
++        var chOff = globalXmlParser.element(xfrm, "chOff");
++        var chExt = globalXmlParser.element(xfrm, "chExt");
++        var cx = ext ? globalXmlParser.intAttr(ext, "cx", 0) : 0;
++        var cy = ext ? globalXmlParser.intAttr(ext, "cy", 0) : 0;
++        var childCx = chExt ? globalXmlParser.intAttr(chExt, "cx", cx) : cx;
++        var childCy = chExt ? globalXmlParser.intAttr(chExt, "cy", cy) : cy;
++        return {
++            width: cx / 12700,
++            height: cy / 12700,
++            offsetX: chOff ? globalXmlParser.intAttr(chOff, "x", 0) : 0,
++            offsetY: chOff ? globalXmlParser.intAttr(chOff, "y", 0) : 0,
++            scaleX: childCx ? cx / childCx : 1,
++            scaleY: childCy ? cy / childCy : 1
++        };
++    }
++    placeInGroup(item, source, group) {
++        if (!group || !item)
++            return;
++        var properties = globalXmlParser.element(source, "spPr") ?? globalXmlParser.element(source, "grpSpPr");
++        var xfrm = properties && globalXmlParser.element(properties, "xfrm");
++        if (!xfrm)
++            return;
++        var off = globalXmlParser.element(xfrm, "off");
++        var ext = globalXmlParser.element(xfrm, "ext");
++        item.cssStyle ?? (item.cssStyle = {});
++        item.cssStyle["position"] = "absolute";
++        if (off) {
++            item.cssStyle["left"] = `${(globalXmlParser.intAttr(off, "x", 0) - group.offsetX) * group.scaleX / 12700}pt`;
++            item.cssStyle["top"] = `${(globalXmlParser.intAttr(off, "y", 0) - group.offsetY) * group.scaleY / 12700}pt`;
++        }
++        if (ext) {
++            item.cssStyle["width"] = `${globalXmlParser.intAttr(ext, "cx", 0) * group.scaleX / 12700}pt`;
++            item.cssStyle["height"] = `${globalXmlParser.intAttr(ext, "cy", 0) * group.scaleY / 12700}pt`;
++        }
++    }
++    parseGraphicElement(elem, depth = 0) {
 +        switch (elem.localName) {
 +            case "pic":
 +                return this.parsePicture(elem);
@@ -294,17 +388,29 @@ index 2691670..de1a7a0 100644
 +                return this.parseWsp(elem);
 +            case "wgp":
 +            case "wpc":
++                if (depth > 16)
++                    return null;
++                var group = this.groupTransform(elem);
 +                var children = [];
 +                for (let child of globalXmlParser.elements(elem)) {
-+                    var parsed = this.parseGraphicElement(child);
++                    var parsed = this.parseGraphicElement(child, depth + 1);
 +                    if (parsed) {
-+                        if (Array.isArray(parsed)) children.push(...parsed);
-+                        else children.push(parsed);
++                        for (let item of Array.isArray(parsed) ? parsed : [parsed]) {
++                            this.placeInGroup(item, child, group);
++                            children.push(item);
++                        }
 +                    }
++                }
++                var groupStyle = {};
++                if (group) {
++                    groupStyle["position"] = "relative";
++                    groupStyle["width"] = group.width ? `${group.width}pt` : "100%";
++                    groupStyle["height"] = group.height ? `${group.height}pt` : "100%";
 +                }
 +                return {
 +                    type: DomType.VmlPicture,
-+                    children: children
++                    children: children,
++                    cssStyle: groupStyle
 +                };
          }
          return null;
@@ -335,7 +441,7 @@ index 2691670..de1a7a0 100644
      parsePicture(elem) {
          var result = { type: DomType.Image, src: "", cssStyle: {} };
          var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3130,6 +3183,12 @@ class HtmlRenderer {
+@@ -3130,6 +3236,12 @@ class HtmlRenderer {
              || prev.pageSize?.width != next.pageSize?.width
              || prev.pageSize?.height != next.pageSize?.height;
      }
@@ -348,7 +454,7 @@ index 2691670..de1a7a0 100644
      splitBySection(elements, defaultProps) {
          var current = { sectProps: null, elements: [], pageBreak: false };
          var result = [current];
-@@ -3155,6 +3214,15 @@ class HtmlRenderer {
+@@ -3155,6 +3267,15 @@ class HtmlRenderer {
                          return rBreakIndex != -1;
                      });
                  }
@@ -364,7 +470,7 @@ index 2691670..de1a7a0 100644
                  if (sectProps || pBreakIndex != -1) {
                      current.sectProps = sectProps;
                      current.pageBreak = pBreakIndex != -1;
-@@ -3166,8 +3234,9 @@ class HtmlRenderer {
+@@ -3166,8 +3287,9 @@ class HtmlRenderer {
                      let splitRun = rBreakIndex < breakRun.children.length - 1;
                      if (pBreakIndex < p.children.length - 1 || splitRun) {
                          var children = elem.children;
@@ -375,7 +481,7 @@ index 2691670..de1a7a0 100644
                          current.elements.push(newParagraph);
                          if (splitRun) {
                              let runChildren = breakRun.children;
-@@ -3190,13 +3259,20 @@ class HtmlRenderer {
+@@ -3190,13 +3312,20 @@ class HtmlRenderer {
          }
          return result;
      }
@@ -398,7 +504,7 @@ index 2691670..de1a7a0 100644
                  result.push(current = []);
              prev = s.sectProps;
          }
-@@ -3455,6 +3531,14 @@ section.${c}>footer { z-index: 1; }
+@@ -3455,6 +3584,14 @@ section.${c}>footer { z-index: 1; }
          if (numbering) {
              result.classList.add(this.numberingClass(numbering.id, numbering.level));
          }
@@ -413,7 +519,7 @@ index 2691670..de1a7a0 100644
          return result;
      }
      renderRunProperties(style, props) {
-@@ -3513,6 +3597,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3513,6 +3650,7 @@ section.${c}>footer { z-index: 1; }
              return null;
          const frg = new DocumentFragment();
          const commentRefEl = this.createElement("span", { className: `${this.className}-comment-ref` }, ['💬']);
@@ -421,7 +527,7 @@ index 2691670..de1a7a0 100644
          const commentsContainerEl = this.createElement("div", { className: `${this.className}-comment-popover` });
          this.renderCommentContent(comment, commentsContainerEl);
          frg.appendChild(this.createComment(`comment #${comment.id} by ${comment.author} on ${comment.date}`));
-@@ -3524,6 +3609,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3524,6 +3662,7 @@ section.${c}>footer { z-index: 1; }
          if (!this.options.renderAltChunks)
              return null;
          var result = this.createElement("iframe");
@@ -429,7 +535,7 @@ index 2691670..de1a7a0 100644
          this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
              result.srcdoc = x;
          }));
-@@ -3575,12 +3661,17 @@ section.${c}>footer { z-index: 1; }
+@@ -3575,12 +3714,17 @@ section.${c}>footer { z-index: 1; }
      }
      renderInserted(elem) {
          if (this.options.renderChanges)
@@ -449,7 +555,7 @@ index 2691670..de1a7a0 100644
          return null;
      }
      renderSymbol(elem) {
-@@ -3699,8 +3790,10 @@ section.${c}>footer { z-index: 1; }
+@@ -3699,8 +3843,10 @@ section.${c}>footer { z-index: 1; }
          return result;
      }
      renderVmlPicture(elem) {

@@ -32,6 +32,8 @@ All notable changes to ShowDocx are documented in this file.
 
 - **Pages are where Word put them.** Visual mode broke pages only at explicit page and section breaks, so a forty-page document without manual breaks was one long page — the page indicator said "1 / 1" and the status bar "1 page". It now also follows the page beginnings Word records each time it saves. A paragraph Word moved to a new page moves whole instead of leaving an empty copy behind; the second half of a list item split across pages is not numbered again; a continuous section stays on its page, where every section used to start a new one. For a document written by a tool that records no page breaks, the status bar takes the larger of the pages rendered and the count Word stored. ([#68](https://github.com/showdocx/show-docx/issues/68))
 
+- **Shapes in a group are drawn where they belong.** Every shape in a grouped drawing was placed at the group's top-left corner, so a diagram of text boxes and shapes collapsed into one overlapping heap. Each is now positioned and sized from the group's own coordinates, and nested groups are followed to a bounded depth. ([#75](https://github.com/showdocx/show-docx/issues/75))
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed

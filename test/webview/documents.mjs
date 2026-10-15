@@ -143,6 +143,47 @@ export const paginatedDocument = once(async () => {
   return zip.generateAsync({ type: 'nodebuffer' });
 });
 
+/** Stands in for a run; replaced with a drawing the library cannot write. */
+const GROUP_MARK = 'GROUPMARK';
+
+function textBox(id, name, x, y, text) {
+  return `<wps:wsp><wps:cNvPr id="${id}" name="${name}"/><wps:cNvSpPr txBox="1"/>`
+    + `<wps:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="1000000" cy="500000"/></a:xfrm>`
+    + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></wps:spPr>'
+    + `<wps:txbx><w:txbxContent><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:txbxContent></wps:txbx>`
+    + '<wps:bodyPr/></wps:wsp>';
+}
+
+/**
+ * A grouped drawing: two text boxes, "Box A" at the group's origin and "Box B"
+ * 2,000,000 EMU right and 1,000,000 EMU down — 157.48pt and 78.74pt.
+ */
+export const groupDocument = once(async () => {
+  const document = new Document({
+    sections: [{ children: [new Paragraph({ children: [new TextRun(GROUP_MARK)] })] }],
+  });
+  const drawing = '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+    + '<wp:extent cx="3000000" cy="1500000"/><wp:docPr id="1" name="Group 1"/>'
+    + '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+    + '<a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"><wpg:wgp>'
+    + '<wpg:cNvGrpSpPr/><wpg:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="3000000" cy="1500000"/>'
+    + '<a:chOff x="0" y="0"/><a:chExt cx="3000000" cy="1500000"/></a:xfrm></wpg:grpSpPr>'
+    + textBox(2, 'A', 0, 0, 'Box A')
+    + textBox(3, 'B', 2000000, 1000000, 'Box B')
+    + '</wpg:wgp></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(document));
+  const body = await zip.file('word/document.xml').async('text');
+  const replaced = body.replace(
+    new RegExp(`<w:r>(?:<w:rPr>(?:(?!</w:rPr>).)*</w:rPr>)?<w:t[^>]*>${GROUP_MARK}</w:t></w:r>`),
+    drawing,
+  );
+  if (replaced.includes(GROUP_MARK)) {
+    throw new Error('The group mark was not replaced.');
+  }
+  zip.file('word/document.xml', replaced);
+  return zip.generateAsync({ type: 'nodebuffer' });
+});
+
 /** Adds an `altChunk` — HTML Word embeds as-is — at the end of the body. */
 async function withAltChunk(bytes, html) {
   const zip = await JSZip.loadAsync(bytes);

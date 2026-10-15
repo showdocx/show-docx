@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { linksDocument, paginatedDocument, serveDocument, turkishDocument } from './documents.mjs';
+import {
+  groupDocument,
+  linksDocument,
+  paginatedDocument,
+  serveDocument,
+  turkishDocument,
+} from './documents.mjs';
 
 test('renders visual and text modes and updates zoom', async ({ page }) => {
   await page.goto('/scripts/webview-harness.html');
@@ -251,6 +257,19 @@ test('shows which page is on screen, and only where pages exist', async ({ page 
 
   await page.locator('#mode-visual').click();
   await expect(indicator).toBeVisible();
+});
+
+test('places each shape of a group where the group says it is', async ({ page }) => {
+  await serveDocument(page, 'group.docx', await groupDocument());
+  await page.goto('/scripts/webview-harness.html?fixture=group.docx');
+  const container = page.locator('#visual-container');
+  const first = await container.getByText('Box A').boundingBox();
+  const second = await container.getByText('Box B').boundingBox();
+
+  // 2,000,000 by 1,000,000 EMU is 157.48pt by 78.74pt, or 210px by 105px at
+  // 100%. Both boxes used to be drawn at the group's origin, on top of each other.
+  expect(second.x - first.x).toBeCloseTo(157.48 * 4 / 3, 0);
+  expect(second.y - first.y).toBeCloseTo(78.74 * 4 / 3, 0);
 });
 
 test('breaks pages where Word last laid them out', async ({ page }) => {
