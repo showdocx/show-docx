@@ -362,7 +362,7 @@ describe('Current hidden-run properties', () => {
     assert.equal(xmlToLines(filtered), 'beforeafter');
     assert.equal(filtered, xml.replace(outer, ''));
     let malformed = false;
-    new DOMParser({ errorHandler: { error: () => {malformed = true;}, fatalError: () => {malformed = true;} } })
+    new DOMParser({ onError: () => {malformed = true;} })
       .parseFromString(filtered, 'application/xml');
     assert.equal(malformed, false);
   });
