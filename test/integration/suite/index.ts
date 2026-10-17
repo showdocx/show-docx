@@ -1,9 +1,13 @@
 import { readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import Mocha from 'mocha';
+import type Mocha from 'mocha';
 
 export async function run(): Promise<void> {
-  const mocha = new Mocha({
+  const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+    specifier: string,
+  ) => Promise<{ default: typeof Mocha }>;
+  const { default: MochaConstructor } = await dynamicImport('mocha');
+  const mocha = new MochaConstructor({
     color: true,
     timeout: 20_000,
     ui: 'bdd',
