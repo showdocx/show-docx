@@ -2,6 +2,14 @@
 
 All notable changes to ShowDocx are documented in this file.
 
+## [1.2.4] - 2026-10-17
+
+### Changed
+
+- **XML parser and DOM error handling updated.** Bumped `@xmldom/xmldom` from 0.8.15 to 0.9.12. Updated error handling semantics in `documentFacts` to use `onError` and added null-safety guards for DOM level specifications (`localName: string | null`).
+- **Mammoth converter upgraded.** Bumped `mammoth` from 1.12.0 to 1.13.0, incorporating upstream DOCX parsing and formatting improvements.
+- **Node type definitions and dependency management.** Updated `@types/node` to 26.6.5. Configured Dependabot ignore policies to pin `docx-preview` to our security-patched 0.3.7 release and restrict `mocha` to 11.x until minimum VS Code engine requirements are advanced.
+
 ## [1.2.3] - 2026-10-17
 
 ### Security
