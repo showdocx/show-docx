@@ -415,7 +415,7 @@
     "eslint": "^9.39.1",
     "mocha": "^11.3.0",
     "patch-package": "^8.0.1",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "overrides": {
     "diff": "8.0.3",
