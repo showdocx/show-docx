@@ -71,22 +71,27 @@ export class CommentsController {
   }
 
   public refresh(): void {
-    this.list.replaceChildren();
+    if (!this.isOpen) {
+      this.entries = [];
+      const structure = this.structure;
+      const count = (structure?.comments.length ?? 0) + (structure?.revisions.length ?? 0);
+      this.updateBadge(count);
+      return;
+    }
+
     const container = this.activeContainerGetter();
     this.entries = this.buildEntries(container);
+    this.updateBadge(this.entries.length);
+
+    this.list.replaceChildren();
 
     if (this.entries.length === 0) {
-      this.countBadge.classList.add('hidden');
-      this.countBadge.textContent = '0';
       const empty = document.createElement('div');
       empty.className = 'sidebar-empty';
       empty.textContent = 'No comments or tracked changes in this document.';
       this.list.appendChild(empty);
       return;
     }
-
-    this.countBadge.textContent = String(this.entries.length);
-    this.countBadge.classList.remove('hidden');
 
     for (let index = 0; index < this.entries.length; index += 1) {
       const entry = this.entries[index];
@@ -135,6 +140,11 @@ export class CommentsController {
     }
   }
 
+  private updateBadge(count: number): void {
+    this.countBadge.textContent = String(count);
+    this.countBadge.classList.toggle('hidden', count === 0);
+  }
+
   /**
    * The annotations the document records, in reading order: its comments where
    * the body anchors them, then its tracked changes.
@@ -150,15 +160,29 @@ export class CommentsController {
     }
 
     const byId = new Map(structure.comments.map((comment) => [comment.id, comment]));
+    const orderSet = new Set(structure.commentOrder);
     const ordered = [
       ...structure.commentOrder.map((id) => byId.get(id)).filter(isComment),
-      ...structure.comments.filter((comment) => !structure.commentOrder.includes(comment.id)),
+      ...structure.comments.filter((comment) => !orderSet.has(comment.id)),
     ];
 
-    // The patched docx-preview writes each comment's and each revision's id onto
-    // the element it renders, so a card finds its own place. Matching by
-    // position instead sent every later card to the wrong place as soon as one
-    // annotation was rendered differently from how the document lists it.
+    // The renderer writes ids onto anchors; indexing them once avoids one full
+    // DOM walk for every card and keeps a card attached to its own annotation.
+    const commentAnchors = new Map<string, HTMLElement>();
+    for (const element of container.querySelectorAll<HTMLElement>(`.${VISUAL_CLASS}-comment-ref[data-comment-id]`)) {
+      const id = element.dataset.commentId;
+      if (id && !commentAnchors.has(id)) {
+        commentAnchors.set(id, element);
+      }
+    }
+    const revisionAnchors = new Map<string, HTMLElement>();
+    for (const element of container.querySelectorAll<HTMLElement>('ins[data-revision-id], del[data-revision-id]')) {
+      const id = element.dataset.revisionId;
+      if (id && !revisionAnchors.has(id)) {
+        revisionAnchors.set(id, element);
+      }
+    }
+
     const entries: CommentEntry[] = ordered.map((comment) => ({
       author: comment.author,
       text: comment.text,
@@ -166,7 +190,7 @@ export class CommentsController {
       date: comment.date,
       resolved: comment.resolved,
       isReply: comment.replyTo !== undefined,
-      anchor: findById(container, `.${VISUAL_CLASS}-comment-ref[data-comment-id]`, 'commentId', comment.id),
+      anchor: commentAnchors.get(comment.id),
     }));
 
     for (const revision of structure.revisions) {
@@ -175,28 +199,11 @@ export class CommentsController {
         text: revision.text,
         type: revision.type,
         date: revision.date,
-        anchor: revision.id === undefined
-          ? undefined
-          : findById(container, revision.type === 'insertion' ? 'ins[data-revision-id]' : 'del[data-revision-id]', 'revisionId', revision.id),
+        anchor: revision.id === undefined ? undefined : revisionAnchors.get(revision.id),
       });
     }
     return entries;
   }
-}
-
-/** The first rendered element carrying this id, if the mode on screen has one. */
-function findById(
-  container: HTMLElement,
-  selector: string,
-  key: 'commentId' | 'revisionId',
-  id: string,
-): HTMLElement | undefined {
-  for (const element of container.querySelectorAll<HTMLElement>(selector)) {
-    if (element.dataset[key] === id) {
-      return element;
-    }
-  }
-  return undefined;
 }
 
 function describeType(entry: CommentEntry): string {

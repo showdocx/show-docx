@@ -13,6 +13,7 @@ import {
 import { DIFF_SCHEME, WORKING_TREE, encodeDiffUri } from './diffProvider';
 import type { DocxDiffContentProvider } from './diffProvider';
 import { isDocumentPath } from '../../shared/documentExtensions';
+import { DocxFileTooLargeError } from '../errors';
 import { getLog } from '../log';
 
 /**
@@ -30,10 +31,10 @@ export function resolveGitPath(): string {
   return typeof candidate === 'string' && candidate.trim() !== '' ? candidate : 'git';
 }
 
-export async function readDocxAtRef(uri: vscode.Uri, ref: string): Promise<Uint8Array> {
+export async function readDocxAtRef(uri: vscode.Uri, ref: string, maxBytes?: number): Promise<Uint8Array> {
   const run = createGitRunner(resolveGitPath());
   const { root, relativePath } = await locateInRepository(uri.fsPath, run);
-  return readFileAtRef(root, relativePath, ref, run);
+  return readFileAtRef(root, relativePath, ref, run, maxBytes);
 }
 
 /**
@@ -67,18 +68,20 @@ export async function compareWithHead(
   }
 
   const name = path.basename(target.path);
+  let leftUri: vscode.Uri | undefined;
   try {
     const run = createGitRunner(resolveGitPath());
     const { root, relativePath } = await locateInRepository(target.fsPath, run);
     if (!await refExists(root, HEAD, run)) {
       throw new EmptyRepositoryError(HEAD);
     }
-    // Fail here rather than inside the content provider, where the only report
-    // available is the diff editor refusing to open one of its sides.
-    await readFileAtRef(root, relativePath, HEAD, run);
-
     const left = encodeDiffUri(target, HEAD);
+    leftUri = left;
     const right = encodeDiffUri(target, undefined);
+    // Read and validate the historical bytes once. The provider consumes this
+    // exact buffer when VS Code asks for the left side, avoiding a second git
+    // show and another copy of a large blob in memory.
+    await provider.preflightRevision(left);
     // Both sides may already be open from an earlier comparison of the same
     // document, in which case VS Code would otherwise reuse what it cached.
     provider.refresh(left);
@@ -93,12 +96,16 @@ export async function compareWithHead(
     );
     getLog().info(`Comparing ${relativePath} with ${HEAD}.`);
   } catch (error: unknown) {
+    if (leftUri) {provider.clearPreflight(leftUri);}
     getLog().error(`Comparing ${name} with ${HEAD} failed.`, error);
     void vscode.window.showWarningMessage(`ShowDocx: ${toUserMessage(error, name)}`);
   }
 }
 
 function toUserMessage(error: unknown, name: string): string {
+  if (error instanceof DocxFileTooLargeError) {
+    return `${name} exceeds ShowDocx's maximum file size.`;
+  }
   if (error instanceof NotInRepositoryError) {
     return `${name} is not inside a git repository, so there is no revision to compare it with.`;
   }

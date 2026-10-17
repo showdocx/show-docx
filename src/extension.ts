@@ -3,13 +3,14 @@ import { compareWithHead, isComparableDocx, readDocxAtRef } from './diff/compare
 import { DIFF_SCHEME, DocxDiffContentProvider } from './diff/diffProvider';
 import { DocxEditorProvider } from './docxEditorProvider';
 import { extractImages } from './extractImages';
-import { writeWorkspaceMirrors } from './mirror/markdownMirror';
+import { cancelMirrorRefresh, disposeMirrorRefreshes, scheduleMirrorRefresh, writeWorkspaceMirrors } from './mirror/markdownMirror';
 import { DocumentTextIndex, showWorkspaceSearch } from './search/workspaceSearch';
-import { validateDocxBytes } from './docxLoader';
+import { validateDocxBytes, zipValidationOptionsFor } from './docxLoader';
 import { disposeLog, getLog } from './log';
 import { registerChatParticipant } from './lm/chatParticipant';
 import { registerReadDocxTool } from './lm/readDocxTool';
 import { watchFile } from './watchFile';
+import { SEARCH_FILENAME_PATTERN } from '../shared/documentExtensions';
 
 /**
  * What the integration tests can ask of a running extension: whether a real
@@ -32,6 +33,28 @@ export function activate(context: vscode.ExtensionContext): ShowDocxTestApi | un
     maxFileSize: () => provider.maxFileSize,
   });
 
+  const documentWatcher = vscode.workspace.createFileSystemWatcher('**/' + SEARCH_FILENAME_PATTERN);
+  const mirrorHost = {
+    read: (uri: vscode.Uri) => provider.readDocument(uri),
+    zipValidationOptions: () => zipValidationOptionsFor(provider.maxFileSize),
+  };
+  context.subscriptions.push(
+    documentWatcher,
+    documentWatcher.onDidChange((uri) => {
+      documentText.forget(uri);
+      scheduleMirrorRefresh(uri, mirrorHost);
+    }),
+    documentWatcher.onDidCreate((uri) => {
+      documentText.forget(uri);
+      scheduleMirrorRefresh(uri, mirrorHost);
+    }),
+    documentWatcher.onDidDelete((uri) => {
+      documentText.forget(uri);
+      cancelMirrorRefresh(uri);
+    }),
+    { dispose: disposeMirrorRefreshes },
+  );
+
   const diffProvider = new DocxDiffContentProvider({
     readWorkingTree: (uri) => provider.readDocument(uri),
     readAtRef: async (uri, ref) => {
@@ -40,9 +63,11 @@ export function activate(context: vscode.ExtensionContext): ShowDocxTestApi | un
       if (!vscode.workspace.isTrusted) {
         throw new Error('ShowDocx does not run git in a restricted workspace.');
       }
-      return validateDocxBytes(await readDocxAtRef(uri, ref), provider.maxFileSize);
+      const maxSize = provider.maxFileSize;
+      return validateDocxBytes(await readDocxAtRef(uri, ref, maxSize), maxSize);
     },
     watch: watchFile,
+    zipValidationOptions: () => zipValidationOptionsFor(provider.maxFileSize),
   });
 
   /**
@@ -68,6 +93,7 @@ export function activate(context: vscode.ExtensionContext): ShowDocxTestApi | un
       .filter((folder) => folder.uri.scheme === 'file')
       .map((folder) => folder.uri.fsPath),
     read: (uri) => provider.readDocument(uri),
+    zipValidationOptions: () => zipValidationOptionsFor(provider.maxFileSize),
   });
   if (readDocxTool) {
     context.subscriptions.push(readDocxTool);
@@ -78,6 +104,7 @@ export function activate(context: vscode.ExtensionContext): ShowDocxTestApi | un
   const chatParticipant = registerChatParticipant(context, {
     activeDocument: () => provider.getActiveDocumentUri(),
     read: (uri) => provider.readDocument(uri),
+    zipValidationOptions: () => zipValidationOptionsFor(provider.maxFileSize),
   });
   if (chatParticipant) {
     context.subscriptions.push(chatParticipant);
@@ -126,11 +153,12 @@ export function activate(context: vscode.ExtensionContext): ShowDocxTestApi | un
       provider.sendToActivePanel('showProperties');
     }),
     vscode.commands.registerCommand('showDocx.writeMarkdownMirror', async () => {
-      await writeWorkspaceMirrors({ read: (uri) => provider.readDocument(uri) });
+      await writeWorkspaceMirrors(mirrorHost);
     }),
     vscode.commands.registerCommand('showDocx.extractImages', async (uri?: vscode.Uri) => {
       await extractImages(resolveCompareTarget(uri), {
         read: (target) => provider.readDocument(target),
+        zipValidationOptions: () => zipValidationOptionsFor(provider.maxFileSize),
       });
     }),
     // Opens the in-document search already carrying a query. Not in the command

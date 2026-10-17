@@ -1,10 +1,11 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { validateDocxBytes } from '../docxLoader';
+import { validateDocxBytes, zipValidationOptionsFor } from '../docxLoader';
 import { DocxFileTooLargeError } from '../errors';
 import { extractSearchText, findMatches, snippet } from '../text/searchText';
-import { FILENAME_PATTERN } from '../../shared/documentExtensions';
+import { SEARCH_FILENAME_PATTERN } from '../../shared/documentExtensions';
 import { getLog } from '../log';
+import { getWorkspaceExcludePattern } from '../utils/workspaceExclude';
 
 /**
  * Searching inside every Word document in the workspace.
@@ -18,6 +19,7 @@ import { getLog } from '../log';
 /** Beyond this a list stops being useful, and building it stops being cheap. */
 const MAX_RESULTS = 300;
 const MAX_RESULTS_PER_FILE = 20;
+const MAX_WORKSPACE_DOCUMENTS = 10000;
 
 /** Typing is a stream of queries; only the last one is worth running. */
 const SEARCH_DEBOUNCE_MS = 200;
@@ -39,7 +41,7 @@ interface CacheEntry {
 }
 
 /**
- * How much extracted text the index keeps, in characters — about 64 MB. A
+ * How much extracted text the index keeps, in characters — about 32 MB. A
  * workspace of a few hundred specifications fits; a folder of thousands of
  * documents keeps the ones searched most recently rather than all of them.
  */
@@ -63,6 +65,8 @@ export interface DocumentTextIndexOptions {
 export class DocumentTextIndex {
   /** In order of use, least recent first, so the oldest is evicted first. */
   private readonly cache = new Map<string, CacheEntry>();
+  /** Only the newest non-invalidated request may populate the cache. */
+  private readonly pending = new Map<string, object>();
   private cachedCharacters = 0;
   private readonly maxFileSize: () => number;
   private readonly maxCachedCharacters: number;
@@ -77,30 +81,49 @@ export class DocumentTextIndex {
 
   public async textOf(uri: vscode.Uri): Promise<string> {
     const key = uri.toString();
-    const stat = await this.fs.stat(uri);
-    const stamp = `${stat.mtime}:${stat.size}`;
-    const cached = this.cache.get(key);
-    if (cached?.stamp === stamp) {
-      this.touch(key);
-      return cached.text;
-    }
+    const request = {};
+    this.pending.set(key, request);
+    try {
+      const stat = await this.fs.stat(uri);
+      const maxSize = this.maxFileSize();
+      if (stat.size > maxSize) {
+        throw new DocxFileTooLargeError(stat.size, maxSize);
+      }
+      const stamp = `${stat.ctime}:${stat.mtime}:${stat.size}`;
+      const cacheable = Number.isFinite(stat.mtime) && stat.mtime > 0;
+      const cached = this.cache.get(key);
+      if (cacheable && cached?.stamp === stamp) {
+        this.touch(key);
+        return cached.text;
+      }
 
-    const maxSize = this.maxFileSize();
-    if (stat.size > maxSize) {
-      throw new DocxFileTooLargeError(stat.size, maxSize);
+      const data = validateDocxBytes(await this.fs.readFile(uri), maxSize);
+      const text = await extractSearchText(data, {}, zipValidationOptionsFor(maxSize));
+      if (cacheable && this.pending.get(key) === request) {
+        this.store(key, { stamp, text });
+      }
+      return text;
+    } finally {
+      if (this.pending.get(key) === request) {
+        this.pending.delete(key);
+      }
     }
-    const data = validateDocxBytes(await this.fs.readFile(uri), maxSize);
-    const text = await extractSearchText(data);
-    this.store(key, { stamp, text });
-    return text;
   }
 
   public forget(uri: vscode.Uri): void {
-    const entry = this.cache.get(uri.toString());
+    const key = uri.toString();
+    this.pending.delete(key);
+    const entry = this.cache.get(key);
     if (entry) {
-      this.cache.delete(uri.toString());
+      this.cache.delete(key);
       this.cachedCharacters -= entry.text.length;
     }
+  }
+
+  public clear(): void {
+    this.pending.clear();
+    this.cache.clear();
+    this.cachedCharacters = 0;
   }
 
   public get size(): number {
@@ -121,12 +144,16 @@ export class DocumentTextIndex {
       this.cache.delete(key);
       this.cachedCharacters -= previous.text.length;
     }
+    if (entry.text.length > this.maxCachedCharacters) {
+      return;
+    }
     this.cache.set(key, entry);
     this.cachedCharacters += entry.text.length;
-    for (const [oldest, value] of this.cache) {
-      if (this.cachedCharacters <= this.maxCachedCharacters || oldest === key) {
-        break;
-      }
+    while (this.cachedCharacters > this.maxCachedCharacters) {
+      const oldest = this.cache.keys().next().value as string | undefined;
+      if (oldest === undefined) {break;}
+      const value = this.cache.get(oldest);
+      if (!value) {break;}
       this.cache.delete(oldest);
       this.cachedCharacters -= value.text.length;
     }
@@ -221,14 +248,17 @@ export function showWorkspaceSearch(index: DocumentTextIndex, initialQuery?: str
     void (async () => {
       try {
         const files = await vscode.workspace.findFiles(
-          `**/${FILENAME_PATTERN}`,
-          '**/node_modules/**',
+          '**/' + SEARCH_FILENAME_PATTERN,
+          getWorkspaceExcludePattern(),
+          MAX_WORKSPACE_DOCUMENTS + 1,
         );
-        const outcome = await searchDocuments(files, query, index, tokenSource.token);
+        const documentsTruncated = files.length > MAX_WORKSPACE_DOCUMENTS;
+        const searchableFiles = files.slice(0, MAX_WORKSPACE_DOCUMENTS);
+        const outcome = await searchDocuments(searchableFiles, query, index, tokenSource.token);
         if (current !== generation || tokenSource.token.isCancellationRequested) {
           return;
         }
-        picker.items = toItems(outcome, query, files.length);
+        picker.items = toItems(outcome, query, searchableFiles.length, documentsTruncated);
       } catch (error: unknown) {
         getLog().error('Searching the workspace failed.', error);
         if (current === generation) {
@@ -277,14 +307,32 @@ export function showWorkspaceSearch(index: DocumentTextIndex, initialQuery?: str
   }
 }
 
-function toItems(outcome: SearchOutcome, query: string, searched: number): HitItem[] {
+function toItems(
+  outcome: SearchOutcome,
+  query: string,
+  searched: number,
+  documentsTruncated = false,
+): HitItem[] {
   if (outcome.hits.length === 0) {
-    return [{
+    const items: HitItem[] = [{
       label: searched === 0
         ? 'No Word documents in this workspace'
         : `No matches for "${query}" in ${searched} document${searched === 1 ? '' : 's'}`,
       alwaysShow: true,
     }];
+    if (documentsTruncated) {
+      items.push({
+        label: `Search stopped after ${MAX_WORKSPACE_DOCUMENTS} documents. Narrow the workspace to search the rest.`,
+        alwaysShow: true,
+      });
+    }
+    if (outcome.failures > 0) {
+      items.push({
+        label: `${outcome.failures} document${outcome.failures === 1 ? '' : 's'} could not be read. See the ShowDocx log.`,
+        alwaysShow: true,
+      });
+    }
+    return items;
   }
 
   const items: HitItem[] = outcome.hits.map((hit) => ({
@@ -298,6 +346,12 @@ function toItems(outcome: SearchOutcome, query: string, searched: number): HitIt
   if (outcome.truncated) {
     items.push({
       label: `Showing the first ${outcome.hits.length} matches. Narrow the search to see the rest.`,
+      alwaysShow: true,
+    });
+  }
+  if (documentsTruncated) {
+    items.push({
+      label: `Search stopped after ${MAX_WORKSPACE_DOCUMENTS} documents. Narrow the workspace to search the rest.`,
       alwaysShow: true,
     });
   }

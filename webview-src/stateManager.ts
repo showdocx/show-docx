@@ -32,7 +32,9 @@ const HOST_PERSIST_DELAY_MS = 750;
  * specification and reopening it next week returns to the same page.
  */
 export class StateManager {
+  /** Only user preferences belong in either persistent store. */
   private state: ViewerState;
+  private transientMode: RenderMode | undefined;
   private readonly restored: boolean;
   private chosen = false;
   private hostTimer: ReturnType<typeof setTimeout> | undefined;
@@ -44,7 +46,9 @@ export class StateManager {
   }
 
   public get value(): Readonly<ViewerState> {
-    return this.state;
+    return this.transientMode === undefined
+      ? this.state
+      : { ...this.state, mode: this.transientMode };
   }
 
   /**
@@ -56,6 +60,8 @@ export class StateManager {
    * where they started because Word saved the file.
    */
   public applyInitialState(settings: ViewerSettings, saved: ViewerState | undefined): void {
+    // A new document version can retry the user's preferred renderer.
+    this.transientMode = undefined;
     if (this.chosen || this.restored) {
       return;
     }
@@ -74,7 +80,12 @@ export class StateManager {
     this.persist();
   }
 
-  public setMode(mode: RenderMode): void {
+  public setMode(mode: RenderMode, persist = true): void {
+    if (!persist) {
+      this.transientMode = mode;
+      return;
+    }
+    this.transientMode = undefined;
     if (this.state.mode === mode) {
       return;
     }
@@ -123,13 +134,17 @@ export class StateManager {
   }
 
   private persist(): void {
-    this.api.setState(this.state);
+    const snapshot = this.state;
+    this.api.setState(snapshot);
     if (this.hostTimer !== undefined) {
       clearTimeout(this.hostTimer);
     }
     this.hostTimer = setTimeout(() => {
       this.hostTimer = undefined;
-      this.api.postMessage({ type: 'persistState', state: this.state });
+      // Capture the user-requested state when scheduling. A later transient
+      // fallback (for example Visual -> Text after a render failure) must not
+      // change what this already scheduled write records.
+      this.api.postMessage({ type: 'persistState', state: snapshot });
     }, HOST_PERSIST_DELAY_MS);
   }
 }

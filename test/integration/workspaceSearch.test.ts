@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import JSZip from 'jszip';
+import { DocxFileTooLargeError } from '../../src/errors';
 import { after, before, describe, it } from 'mocha';
 import { DocumentTextIndex, searchDocuments } from '../../src/search/workspaceSearch';
 
@@ -100,14 +102,13 @@ describe('Searching inside every document', () => {
     assert.ok(outcome.hits.length > 0);
   });
 
-  it('keeps only as much text as it is allowed, dropping the least recently used', async function () {
+  it('does not cache an individual document that exceeds its budget', async function () {
     this.timeout(60_000);
     const small = new DocumentTextIndex(vscode.workspace.fs, { maxCachedCharacters: 1 });
 
     await searchDocuments(files.slice(0, 2), 'ShowDocx', small);
 
-    // Each text alone is over the bound, so only the one just read is kept.
-    assert.equal(small.size, 1);
+    assert.equal(small.size, 0);
   });
 
   it('stops when the search is cancelled', async function () {
@@ -136,6 +137,94 @@ describe('Searching inside every document', () => {
     assert.ok(elapsed < 200, `a cached search should be quick, took ${elapsed}ms`);
   });
 
+  it('applies a reduced size limit before returning cached text', async () => {
+    const uri = files[0];
+    assert.ok(uri);
+    let limit = 100 * 1024 * 1024;
+    let reads = 0;
+    const limited = new DocumentTextIndex({
+      stat: (target) => vscode.workspace.fs.stat(target),
+      readFile: (target) => {
+        reads += 1;
+        return vscode.workspace.fs.readFile(target);
+      },
+    }, { maxFileSize: () => limit });
+    await limited.textOf(uri);
+    limit = 1;
+    await assert.rejects(limited.textOf(uri), DocxFileTooLargeError);
+    assert.equal(reads, 1);
+  });
+
+  for (const invalidation of ['forget', 'clear'] as const) {
+    it(`does not let an old in-flight read refill the cache after ${invalidation}`, async () => {
+      const alpha = await searchDocument('Alpha alpha');
+      const bravo = await searchDocument('Bravo bravo');
+      const uri = vscode.Uri.parse('memory:/unchanged-stamp.docx');
+      let started!: () => void;
+      const reading = new Promise<void>((resolve) => { started = resolve; });
+      let release!: (data: Uint8Array) => void;
+      const oldBytes = new Promise<Uint8Array>((resolve) => { release = resolve; });
+      let reads = 0;
+      const fresh = new DocumentTextIndex({
+        stat: async () => ({ ctime: 1, mtime: 1, size: alpha.byteLength, type: vscode.FileType.File }),
+        readFile: async () => {
+          if (++reads === 1) {
+            started();
+            return oldBytes;
+          }
+          return bravo;
+        },
+      });
+      const old = fresh.textOf(uri);
+      await reading;
+      if (invalidation === 'forget') {fresh.forget(uri);}
+      else {fresh.clear();}
+      assert.equal(await fresh.textOf(uri), 'Bravo bravo');
+      release(alpha);
+      assert.equal(await old, 'Alpha alpha');
+      assert.equal(await fresh.textOf(uri), 'Bravo bravo');
+      assert.equal(reads, 2);
+    });
+  }
+
+  it('does not cache a provider whose modification time is unknown', async () => {
+    const data = await searchDocument('No reliable timestamp');
+    let reads = 0;
+    const fresh = new DocumentTextIndex({
+      stat: async () => ({ ctime: 0, mtime: 0, size: data.byteLength, type: vscode.FileType.File }),
+      readFile: async () => { reads += 1; return data; },
+    });
+    const uri = vscode.Uri.parse('memory:/no-timestamp.docx');
+    await fresh.textOf(uri);
+    await fresh.textOf(uri);
+    assert.equal(reads, 2);
+    assert.equal(fresh.size, 0);
+  });
+
+  it('evicts the least recently used entry while retaining entries that fit', async () => {
+    const data = await searchDocument('Alpha');
+    const reads = new Map<string, number>();
+    const fresh = new DocumentTextIndex({
+      stat: async () => ({ ctime: 1, mtime: 1, size: data.byteLength, type: vscode.FileType.File }),
+      readFile: async (uri) => {
+        reads.set(uri.path, (reads.get(uri.path) ?? 0) + 1);
+        return data;
+      },
+    }, { maxCachedCharacters: 10 });
+    const a = vscode.Uri.parse('memory:/a.docx');
+    const b = vscode.Uri.parse('memory:/b.docx');
+    const c = vscode.Uri.parse('memory:/c.docx');
+    await fresh.textOf(a);
+    await fresh.textOf(b);
+    await fresh.textOf(a);
+    await fresh.textOf(c);
+    await fresh.textOf(a);
+    assert.equal(reads.get(a.path), 1);
+    assert.equal(fresh.size, 2);
+    await fresh.textOf(b);
+    assert.equal(reads.get(b.path), 2);
+  });
+
   it('opens a result in the viewer, with the query in hand', async function () {
     this.timeout(60_000);
     const { hits } = await searchDocuments(files, 'Getting Started', index);
@@ -153,3 +242,11 @@ describe('Searching inside every document', () => {
     assert.equal(input.uri.fsPath, hit.uri.fsPath);
   });
 });
+
+async function searchDocument(text: string): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file('word/document.xml',
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`,
+  );
+  return zip.generateAsync({ type: 'uint8array' });
+}

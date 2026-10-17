@@ -1,6 +1,10 @@
 import JSZip from 'jszip';
 import { findFolded } from '../../shared/searchFold';
 import { decodeEntities } from './htmlToText';
+import { loadAndValidateZip } from '../docxLoader';
+import type { ZipValidationOptions } from '../docxLoader';
+import { readHiddenStyleInfo, removeHiddenRuns, removeXmlElements, xmlTextContent } from './xmlScanner';
+import type { HiddenStyleInfo } from './xmlScanner';
 
 /**
  * Plain text pulled straight out of a document's XML, for finding words in it.
@@ -34,9 +38,12 @@ export interface SearchTextOptions {
 export async function extractSearchText(
   data: Uint8Array | JSZip,
   options: SearchTextOptions = {},
+  zipOptions?: ZipValidationOptions,
 ): Promise<string> {
-  const zip = data instanceof JSZip ? data : await JSZip.loadAsync(data);
+  const zip = data instanceof JSZip ? data : await loadAndValidateZip(data, zipOptions);
   const headersAndFooters = options.headersAndFooters ?? true;
+  const stylesXml = await zip.file('word/styles.xml')?.async('text') ?? '';
+  const hiddenStyles = readHiddenStyleInfo(stylesXml);
   // The body first, then the rest by name, so the same document always reads
   // the same way and a match keeps the same line number between searches.
   const names = Object.keys(zip.files)
@@ -48,7 +55,7 @@ export async function extractSearchText(
   for (const name of names) {
     const file = zip.file(name);
     if (file) {
-      parts.push(xmlToLines(await file.async('text')));
+      parts.push(xmlToLines(await file.async('text'), hiddenStyles));
     }
   }
   return parts.filter((part) => part !== '').join('\n');
@@ -75,14 +82,12 @@ function comparePartNames(left: string, right: string): number {
  *   once as DrawingML in `mc:Choice` and again as VML for older readers.
  *   Reading both counted every word in a text box twice.
  */
-export function xmlToLines(xml: string): string {
-  const text = removeElements(xml, 'mc:Fallback')
-    .replaceAll(/<w:instrText\b[^>]*?(?:\/>|>[\s\S]*?<\/w:instrText>)/g, '')
-    .replaceAll(/<w:delText\b[^>]*?(?:\/>|>[\s\S]*?<\/w:delText>)/g, '')
-    .replaceAll(/<w:tab\b[^>]*\/?>/g, '\t')
-    .replaceAll(/<w:br\b[^>]*\/?>/g, '\n')
-    .replaceAll(/<\/w:p>/g, '\n')
-    .replaceAll(/<[^>]*>/g, '');
+export function xmlToLines(xml: string, hiddenStyles?: HiddenStyleInfo): string {
+  const withoutHidden = removeHiddenRuns(xml, hiddenStyles);
+  const withoutFallback = removeElements(withoutHidden, 'mc:Fallback');
+  const withoutFields = removeXmlElements(withoutFallback, new Set(['w:instrText']));
+  const withoutDeleted = removeXmlElements(withoutFields, new Set(['w:delText']));
+  const text = xmlTextContent(withoutDeleted);
 
   return decodeEntities(text)
     .split('\n')
@@ -97,40 +102,8 @@ export function xmlToLines(xml: string): string {
  * at the first closing tag would leave half the outer one behind.
  */
 function removeElements(xml: string, name: string): string {
-  if (!xml.includes(`<${name}`)) {
-    return xml;
-  }
-  const tags = new RegExp(`<(/?)${name}\\b[^>]*?(/?)>`, 'g');
-  let output = '';
-  let depth = 0;
-  let keptFrom = 0;
-  for (const match of xml.matchAll(tags)) {
-    const index = match.index ?? 0;
-    const end = index + match[0].length;
-    if (match[1] === '/') {
-      if (depth > 0) {
-        depth -= 1;
-        if (depth === 0) {
-          keptFrom = end;
-        }
-      }
-    } else if (depth === 0) {
-      output += xml.slice(keptFrom, index);
-      if (match[2] === '/') {
-        keptFrom = end;
-      } else {
-        depth = 1;
-        keptFrom = index;
-      }
-    } else if (match[2] !== '/') {
-      depth += 1;
-    }
-  }
-  // An element left open is kept rather than dropped with everything after
-  // it: text read twice is a smaller loss than text not read at all.
-  return output + xml.slice(keptFrom);
+  return removeXmlElements(xml, new Set([name]));
 }
-
 export interface TextMatch {
   /** Zero-based index of the line the match is on. */
   readonly line: number;

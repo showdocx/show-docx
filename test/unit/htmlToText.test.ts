@@ -91,7 +91,7 @@ describe('Diff text: images', () => {
     const second = htmlToText(`<p><img alt="Chart" src="${base64}" /></p>`);
 
     assert.equal(first, second);
-    assert.match(first, /^!\[Chart]\(image:[0-9a-f]{8}\)\n$/);
+    assert.match(first, /^!\[Chart]\(image:[0-9a-f]{64}\)\n$/);
     assert.ok(!first.includes('AAAA'), 'the base64 itself must not reach the diff');
   });
 
@@ -211,6 +211,81 @@ describe('Diff text: tables', () => {
       htmlToText('<table><tr><td><p>one</p><p>two</p></td></tr></table>'),
       '| one two |\n| --- |\n',
     );
+  });
+
+  function outputCells(text: string): number {
+    return text.split('\n').filter((line) => line.startsWith('|'))
+      .reduce((total, line) => total + (line.match(/(?<!\\)\|/g)?.length ?? 1) - 1, 0);
+  }
+
+  it('budgets padded output cells, separator and notice rather than original cells', () => {
+    const html = '<table><tr><td colspan="1000">wide</td></tr>'
+      + '<tr><td>narrow</td></tr>'.repeat(9999) + '</table><p>after table</p>';
+    const text = htmlToText(html);
+    assert.ok(outputCells(text) <= 100000);
+    assert.ok(text.length < 400000, `unexpected expansion to ${text.length} characters`);
+    assert.ok(text.includes('[table truncated: safety limit reached]'));
+    assert.ok(text.endsWith('after table\n'));
+  });
+
+  it('indicates colspan clamps even when there are no following cells', () => {
+    for (const span of ['1001', '1000000000', '9'.repeat(400)]) {
+      const text = htmlToText(`<table><tr><td colspan="${span}">wide</td></tr></table>`);
+      assert.ok(text.includes('[table truncated: safety limit reached]'), span);
+      assert.ok(outputCells(text) <= 3000);
+    }
+  });
+
+  it('indicates trailing cells lost to column limits, but not an exact fit', () => {
+    const row = '<td>cell</td>'.repeat(1000);
+    const exact = htmlToText(`<table><tr>${row}</tr></table>`);
+    assert.ok(!exact.includes('truncated'));
+    const overflow = htmlToText(`<table><tr>${row}<td>lost tail</td></tr></table>`);
+    assert.ok(overflow.includes('[table truncated: safety limit reached]'));
+    assert.ok(!overflow.includes('lost tail'));
+    const spanOverflow = htmlToText('<table><tr><td colspan="999">a</td><td colspan="2">b</td></tr></table>');
+    assert.ok(spanOverflow.includes('[table truncated: safety limit reached]'));
+  });
+
+  it('indicates row-limit truncation without silently discarding the end of a table', () => {
+    const text = htmlToText('<table>' + '<tr><td>kept</td></tr>'.repeat(10000)
+      + '<tr><td>lost tail</td></tr></table><p>after</p>');
+    assert.ok(text.includes('[table truncated: safety limit reached]'));
+    assert.ok(!text.includes('lost tail'));
+    assert.ok(text.endsWith('after\n'));
+  });
+
+  it('shares its output-cell budget across tables instead of resetting it for each one', () => {
+    const table = '<table><tr><td colspan="1000">wide</td></tr>' + '<tr><td>x</td></tr>'.repeat(1000) + '</table>';
+    const text = htmlToText(table.repeat(4) + '<p>after</p>');
+    assert.ok(outputCells(text) <= 100000);
+    assert.equal(text.match(/table truncated: safety limit reached/g)?.length, 4);
+    assert.ok(text.endsWith('after\n'));
+    assert.equal(htmlToText('<table><tr><td>fresh document</td></tr></table>'), '| fresh document |\n| --- |\n');
+  });
+
+  it('shares table budgets with nested tables while preserving ordinary nested cell text', () => {
+    assert.equal(
+      htmlToText('<table><tr><td>outer<table><tr><td>inner</td></tr></table></td></tr></table>'),
+      String.raw`| outer \| inner \| \| --- \| |` + '\n| --- |\n',
+    );
+    const nested = '<table><tr><td colspan="1000">wide</td></tr>' + '<tr><td>x</td></tr>'.repeat(1000) + '</table>';
+    const text = htmlToText(`<table><tr><td>${nested}</td><td>${nested}</td></tr></table>`);
+    assert.ok(text.length < 800000);
+    assert.ok(text.includes('table truncated: safety limit reached'));
+  });
+
+  it('bounds total output characters and reports the omitted document tail', () => {
+    const text = htmlToText(`<p>${'a'.repeat(3 * 1024 * 1024)}</p><p>${'b'.repeat(2 * 1024 * 1024)}</p><p>lost tail</p>`);
+    assert.ok(text.length <= 4 * 1024 * 1024);
+    assert.ok(text.endsWith('[text truncated: safety limit reached]\n'));
+    assert.ok(!text.includes('lost tail'));
+  });
+
+  it('bounds oversized table-cell text and reports truncation', () => {
+    const text = htmlToText(`<table><tr><td>${'a'.repeat(5 * 1024 * 1024)}</td></tr></table>`);
+    assert.ok(text.length <= 4 * 1024 * 1024);
+    assert.ok(text.includes('text truncated: safety limit reached'));
   });
 
   it('ignores a thead or tbody wrapper around the rows', () => {

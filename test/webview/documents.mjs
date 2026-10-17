@@ -10,6 +10,8 @@ import {
   TextRun,
 } from 'docx';
 import JSZip from 'jszip';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { rememberServed } from './hostDetails.mjs';
 
 /**
@@ -183,6 +185,62 @@ export const groupDocument = once(async () => {
     throw new Error('The group mark was not replaced.');
   }
   zip.file('word/document.xml', replaced);
+  return zip.generateAsync({ type: 'nodebuffer' });
+});
+
+function xmlAttribute(value) {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+/** Theme values deliberately come from XML, not a synthetic stylesheet. */
+export async function themeDocument({
+  srgb = '1234aB', system = '4567cD', major = 'Safe Major', minor = 'Safe Minor',
+} = {}) {
+  const document = new Document({
+    sections: [{ children: [new Paragraph('Theme regression document')] }],
+  });
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(document));
+  zip.file('word/theme/theme1.xml', '<?xml version="1.0"?>'
+    + '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Regression">'
+    + '<a:themeElements><a:clrScheme name="Regression">'
+    + `<a:accent1><a:srgbClr val="${xmlAttribute(srgb)}"/></a:accent1>`
+    + `<a:dk1><a:sysClr val="windowText" lastClr="${xmlAttribute(system)}"/></a:dk1>`
+    + '</a:clrScheme><a:fontScheme name="Regression">'
+    + `<a:majorFont><a:latin typeface="${xmlAttribute(major)}"/></a:majorFont>`
+    + `<a:minorFont><a:latin typeface="${xmlAttribute(minor)}"/></a:minorFont>`
+    + '</a:fontScheme></a:themeElements></a:theme>');
+  const relsName = 'word/_rels/document.xml.rels';
+  zip.file(relsName, (await zip.file(relsName).async('text')).replace('</Relationships>',
+    '<Relationship Id="rIdRegressionTheme" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/></Relationships>'));
+  const typesName = '[Content_Types].xml';
+  zip.file(typesName, (await zip.file(typesName).async('text')).replace('</Types>',
+    '<Override PartName="/word/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>'));
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+/** A real font, packaged with the OOXML zero XOR key so the bytes stay legible. */
+export const embeddedFontDocument = once(async () => {
+  const document = new Document({
+    sections: [{ children: [new Paragraph({ children: [
+      new TextRun({ text: '\uea60 Embedded font regression', font: 'Embedded Test' }),
+    ] })] }],
+  });
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(document));
+  const require = createRequire(import.meta.url);
+  zip.file('word/fonts/embedded.odttf', await readFile(require.resolve('@vscode/codicons/dist/codicon.ttf')));
+  zip.file('word/fontTable.xml', '<?xml version="1.0"?>'
+    + '<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+    + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    + '<w:font w:name="Embedded Test"><w:embedRegular r:id="rIdEmbeddedFont" '
+    + 'w:fontKey="{00000000-0000-0000-0000-000000000000}"/></w:font></w:fonts>');
+  zip.file('word/_rels/fontTable.xml.rels', '<?xml version="1.0"?>'
+    + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    + '<Relationship Id="rIdEmbeddedFont" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font" '
+    + 'Target="fonts/embedded.odttf"/></Relationships>');
+  const typesName = '[Content_Types].xml';
+  zip.file(typesName, (await zip.file(typesName).async('text')).replace('</Types>',
+    '<Default Extension="odttf" ContentType="application/vnd.openxmlformats-officedocument.obfuscatedFont"/></Types>'));
   return zip.generateAsync({ type: 'nodebuffer' });
 });
 

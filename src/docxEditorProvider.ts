@@ -1,17 +1,21 @@
 import * as path from 'node:path';
-import JSZip from 'jszip';
 import * as vscode from 'vscode';
+import type JSZip from 'jszip';
 import { DocxDocument, type DocxDocumentHost } from './docxDocument';
 import {
   DocxFileTooLargeError,
   InvalidDocxError,
 } from './errors';
 import { DocumentStateStore } from './documentState';
-import { loadValidatedDocx } from './docxLoader';
+import {
+  loadValidatedDocx,
+  loadAndValidateZip,
+  zipValidationOptionsFor,
+} from './docxLoader';
 import { getLog } from './log';
-import { refreshExistingMirror } from './mirror/markdownMirror';
+import { scheduleMirrorRefresh } from './mirror/markdownMirror';
 import { DocumentStatusBar } from './statusBar';
-import { convertDocxToPlainText, convertDocxToText } from './text/docxText';
+import { convertDocxToPlainText, convertDocxToText, makeVisibleDocxBytes } from './text/docxText';
 import { countWords, pageCount, readDocumentProperties } from './text/documentFacts';
 import type { DocumentProperties, DocumentStats } from './text/documentFacts';
 import { readDocumentStructure } from './text/documentStructure';
@@ -99,6 +103,11 @@ interface PanelEntry {
   pending: unknown[];
   /** What the document says about itself, read once per document. */
   facts?: DocumentFacts;
+  /** The ZIP has already passed bounded streaming validation. */
+  validatedData?: Uint8Array;
+  validatedZip?: JSZip;
+  /** Safe bytes with hidden runs removed, reused across preview retries. */
+  preparedData?: Uint8Array;
   /** Pages the viewer has actually rendered for the current transfer. */
   renderedPages?: number;
 }
@@ -196,8 +205,21 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     this.panels.add(entry);
     this.activeEntry = entry;
 
+    // A workspace-wide watcher cannot see standalone documents. Keep their
+    // mirrors independent of the preview's autoReload setting as well.
+    if (!vscode.workspace.getWorkspaceFolder(document.uri)) {
+      entry.subscriptions.push(watchFile(document.uri, () => {
+        scheduleMirrorRefresh(document.uri, { read: (target) => this.readDocument(target) });
+      }));
+    }
+
     entry.subscriptions.push(panel.webview.onDidReceiveMessage(
-      (message: WebviewMessage) => this.onMessage(entry, message),
+      (message: WebviewMessage) => {
+        void this.onMessage(entry, message).catch((error: unknown) => {
+          getLog().error('Handling a viewer message for ' + path.basename(document.uri.path) + ' failed.', error);
+          void this.notify('error', 'ShowDocx could not complete this operation. See the ShowDocx log for details.');
+        });
+      },
     ));
     entry.subscriptions.push(panel.onDidChangeViewState(
       ({ webviewPanel }) => {
@@ -221,8 +243,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         if (entry.ready) {
           void this.sendDocument(entry, true);
         }
-        // Only ever rewrites a mirror that is already there; see markdownMirror.
-        void refreshExistingMirror(document.uri, { read: (uri) => this.readDocument(uri) });
       },
     ));
     entry.subscriptions.push(document.onDidError(
@@ -324,10 +344,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
    * newer version has been sent, and neither the webview nor this entry may
    * take it for the facts of a document they are not showing.
    */
-  private async readFacts(entry: PanelEntry, transferId: number): Promise<void> {
+  private async readFacts(entry: PanelEntry, transferId: number, zip: JSZip): Promise<void> {
     try {
-      // Opened once and read three ways, rather than unzipped by each reader.
-      const zip = await JSZip.loadAsync(entry.document.data);
       const [properties, structure, text] = await Promise.all([
         readDocumentProperties(zip),
         readDocumentStructure(zip),
@@ -462,13 +480,43 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     entry.transferId = transferId;
     entry.facts = undefined;
     entry.renderedPages = undefined;
-    void this.readFacts(entry, transferId);
     const data = entry.document.data;
-    const chunks = splitIntoChunks(data, DEFAULT_CHUNK_SIZE);
+    let zip: JSZip;
+    let transferData: Uint8Array;
+    try {
+      if (entry.validatedData === data && entry.validatedZip && entry.preparedData) {
+        zip = entry.validatedZip;
+        transferData = entry.preparedData;
+      } else {
+        zip = await loadAndValidateZip(data, zipValidationOptionsFor(this.maxFileSize));
+        transferData = await makeVisibleDocxBytes(data, zip);
+      }
+    } catch (error: unknown) {
+      getLog().error('Validating or preparing ' + path.basename(entry.document.uri.path) + ' failed.', error);
+      if (!entry.disposed && entry.transferId === transferId) {
+        entry.transferId = 0;
+        await entry.panel.webview.postMessage({
+          type: 'hostError',
+          message: this.toUserMessage(error),
+        });
+        void this.notify('error', this.toUserMessage(error));
+      }
+      return;
+    }
+    if (entry.disposed || entry.transferId !== transferId) {
+      return;
+    }
+    // Publish the bytes and their source together only while this transfer is
+    // current. A slow preparation for an older version must not poison retries.
+    entry.validatedData = data;
+    entry.validatedZip = zip;
+    entry.preparedData = transferData;
+    void this.readFacts(entry, transferId, zip);
+    const chunks = splitIntoChunks(transferData, DEFAULT_CHUNK_SIZE);
     const meta = {
       transferId,
       fileName: path.basename(entry.document.uri.path),
-      fileSize: data.byteLength,
+      fileSize: transferData.byteLength,
       settings: this.getSettings(),
       // Travels with the document, so restoring the reading position costs no
       // extra round trip.
@@ -480,7 +528,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       await entry.panel.webview.postMessage({
         type: 'document',
         ...meta,
-        data: ownBuffer(data),
+        data: ownBuffer(transferData),
       });
       return;
     }
@@ -629,11 +677,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 
   /**
-   * Most of the time the content is wanted in an issue, a message or a code
-   * comment rather than in a file, which through the export dialog is a
-   * seven-step round trip through a file the user then deletes.
-   */
-  /**
    * Asks which page to go to. The input belongs to the editor rather than the
    * webview, so it looks and behaves like every other prompt in VS Code.
    */
@@ -690,13 +733,16 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private async toMarkdown(document: DocxDocument): Promise<string> {
     const { text, messages } = await convertDocxToText(document.data, {
       stableOrderedNumbers: false,
-    });
+    }, zipValidationOptionsFor(this.maxFileSize));
     this.logConversion(document, messages);
     return text;
   }
 
   private async toPlainText(document: DocxDocument): Promise<string> {
-    const { text, messages } = await convertDocxToPlainText(document.data);
+    const { text, messages } = await convertDocxToPlainText(
+      document.data,
+      zipValidationOptionsFor(this.maxFileSize),
+    );
     this.logConversion(document, messages);
     return text;
   }
@@ -740,17 +786,20 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     let uri: vscode.Uri;
     try {
       uri = vscode.Uri.parse(href, true);
-    } catch {
+    } catch (error: unknown) {
+      getLog().warn('Ignored a malformed link from a Word document.', error);
+      void this.notify('warning', 'ShowDocx ignored a malformed link in the document.');
       return;
     }
     if (!['https', 'http', 'mailto'].includes(uri.scheme.toLowerCase())) {
+      getLog().warn(`Ignored a document link with unsupported scheme "${uri.scheme}".`);
       return;
     }
     // This is the restriction behind the manifest's untrustedWorkspaces:
     // "limited". A document from an untrusted folder must not be able to send
     // the user to a destination it chose.
     if (!vscode.workspace.isTrusted) {
-      getLog().warn(`Blocked a link in a restricted workspace: ${uri.toString()}`);
+      getLog().warn(`Blocked a ${uri.scheme} link in a restricted workspace.`);
       void vscode.window.showWarningMessage(
         'ShowDocx does not open links from documents in a restricted workspace. Trust this workspace to enable them.',
       );
@@ -815,7 +864,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data: blob:; font-src ${webview.cspSource} data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data: blob:; font-src ${webview.cspSource} data:; form-action 'none'; base-uri 'none'; object-src 'none';">
   <link rel="stylesheet" href="${styleUri}">
   <title>ShowDocx</title>
 </head>
@@ -981,7 +1030,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     if (error instanceof vscode.FileSystemError) {
       return 'The document is unavailable or was removed. The last valid preview is still shown.';
     }
-    return 'The document changed, but ShowDocx could not reload it. The last valid preview is still shown.';
+    return 'ShowDocx could not load or process this document. See the ShowDocx log for details.';
   }
 }
-

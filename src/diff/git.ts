@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import * as path from 'node:path';
+import { DocxFileTooLargeError } from '../errors';
 
 /**
  * The slice of git ShowDocx needs: which repository a file belongs to, and what
@@ -50,7 +51,7 @@ export class EmptyRepositoryError extends Error {
 }
 
 /** A DOCX far past the viewer's own limit should not be buffered from git either. */
-const MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+const MAX_OUTPUT_BYTES = 500 * 1024 * 1024;
 
 export function createGitRunner(gitPath: string): GitRunner {
   return (args, cwd) => new Promise<GitResult>((resolve, reject) => {
@@ -185,8 +186,23 @@ export async function readFileAtRef(
   relativePath: string,
   ref: string,
   run: GitRunner,
+  maxBytes?: number,
 ): Promise<Uint8Array> {
   assertSafeRevision(ref);
+  if (maxBytes !== undefined) {
+    const sizeResult = await run(['cat-file', '-s', `${ref}:${relativePath}`], repositoryRoot);
+    if (sizeResult.code !== 0) {
+      throw toRevisionError(sizeResult.stderr, ref, relativePath);
+    }
+    const sizeText = decodeText(sizeResult.stdout).trim();
+    const size = Number(sizeText);
+    if (!Number.isSafeInteger(size) || size < 0) {
+      throw new Error('Git returned an invalid document size.');
+    }
+    if (size > maxBytes) {
+      throw new DocxFileTooLargeError(size, maxBytes);
+    }
+  }
   const result = await run(
     ['--no-optional-locks', 'show', `${ref}:${relativePath}`],
     repositoryRoot,

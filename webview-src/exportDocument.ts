@@ -21,6 +21,7 @@ export function createExportDocument(fileName: string, body: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; script-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none';">
   <title>${title}</title>
   <style>
     :root { color-scheme: light dark; }
@@ -72,6 +73,7 @@ export function createPrintDocument(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; script-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none';">
   <title>${title}</title>
   <style>
 ${escapeStyleText(styles)}

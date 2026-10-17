@@ -94,13 +94,32 @@ interface RenderContext {
   readonly indent: string;
   /** Inside a list, where a blank line between blocks would break the list up. */
   readonly tight: boolean;
+  readonly tableBudget: { cellsRemaining: number };
 }
+
+const MAX_OUTPUT_CHARACTERS = 4 * 1024 * 1024;
+const TEXT_TRUNCATION_NOTICE = '[text truncated: safety limit reached]';
 
 class LineWriter {
   private readonly lines: string[] = [];
+  private characters = 0;
+  public truncated = false;
+
+  public get remainingCharacters(): number {
+    return MAX_OUTPUT_CHARACTERS - TEXT_TRUNCATION_NOTICE.length - 2 - this.characters;
+  }
 
   public push(line: string): void {
-    this.lines.push(line.trimEnd());
+    if (this.truncated) {return;}
+    const trimmed = line.trimEnd();
+    const remaining = this.remainingCharacters;
+    if (trimmed.length + 1 > remaining) {
+      this.lines.push(trimmed.slice(0, Math.max(0, remaining - 1)));
+      this.truncated = true;
+      return;
+    }
+    this.lines.push(trimmed);
+    this.characters += trimmed.length + 1;
   }
 
   /** Separates two blocks, without opening the document or doubling up. */
@@ -109,7 +128,7 @@ class LineWriter {
       return;
     }
     if (this.lines[this.lines.length - 1] !== '') {
-      this.lines.push('');
+      this.push('');
     }
   }
 
@@ -117,6 +136,7 @@ class LineWriter {
     while (this.lines.length > 0 && this.lines[this.lines.length - 1] === '') {
       this.lines.pop();
     }
+    if (this.truncated) {return `${this.lines.join('\n')}\n${TEXT_TRUNCATION_NOTICE}\n`;}
     return this.lines.length === 0 ? '' : `${this.lines.join('\n')}\n`;
   }
 }
@@ -128,6 +148,7 @@ export function htmlToText(html: string, options: TextOptions = {}): string {
     indent: '',
     tight: false,
     options: { stableOrderedNumbers: options.stableOrderedNumbers ?? true },
+    tableBudget: { cellsRemaining: MAX_TABLE_CELLS },
   });
   return writer.toString();
 }
@@ -346,6 +367,7 @@ function renderBlocks(
   };
 
   for (const node of nodes) {
+    if (writer.truncated) {break;}
     if (!isBlock(node)) {
       inlineRun.push(node);
       continue;
@@ -399,6 +421,7 @@ function writeParagraph(inline: string, writer: LineWriter, context: RenderConte
   }
   writer.blank(context);
   for (const line of lines) {
+    if (writer.truncated) {break;}
     writer.push(`${context.quote}${context.indent}${escapeLineStart(line)}`);
   }
   writer.blank(context);
@@ -417,6 +440,7 @@ function renderList(node: ElementNode, writer: LineWriter, context: RenderContex
   const stable = context.options.stableOrderedNumbers;
   let position = 0;
   for (const item of items) {
+    if (writer.truncated) {break;}
     position += 1;
     const marker = ordered ? `${stable ? 1 : position}.` : '-';
     renderListItem(item, writer, { ...context, tight: true }, marker);
@@ -452,61 +476,116 @@ function renderListItem(
   }
 }
 
+const MAX_TABLE_ROWS = 10000;
+const MAX_TABLE_COLUMNS = 1000;
+const MAX_TABLE_CELLS = 100000;
+
+const TABLE_TRUNCATION_NOTICE = '[table truncated: safety limit reached]';
+
 function renderTable(node: ElementNode, writer: LineWriter, context: RenderContext): void {
-  const rows = collectRows(node).map((row) => renderRow(row, context));
-  if (rows.length === 0) {
+  const collected = collectRows(node);
+  const rows: Array<Array<ElementNode | undefined>> = [];
+  let cellsRemaining = context.tableBudget.cellsRemaining;
+  let truncated = collected.truncated;
+  let columns = 1;
+
+  for (const row of collected.rows) {
+    if (cellsRemaining <= 0) {
+      truncated = true;
+      break;
+    }
+    const planned = planRow(row, Math.min(MAX_TABLE_COLUMNS, cellsRemaining));
+    rows.push(planned.cells);
+    cellsRemaining -= planned.cells.length;
+    columns = Math.max(columns, planned.cells.length);
+    truncated ||= planned.truncated;
+  }
+  if (collected.rows.length === 0) {return;}
+
+  const available = context.tableBudget.cellsRemaining;
+  if (available < 3) {
+    writeParagraph(TABLE_TRUNCATION_NOTICE, writer, context);
     return;
   }
-  const columns = Math.max(...rows.map((row) => row.length));
-  const prefix = `${context.quote}${context.indent}`;
+  // Budget the actual rectangle, not just source cells: padding, separator and
+  // a possible notice all occupy columns. Reserve it before rendering nested tables.
+  const outputColumns = Math.min(columns, Math.floor(available / 3));
+  truncated ||= outputColumns < columns;
+  let rowLimit = Math.floor(available / outputColumns) - 1;
+  truncated ||= rows.length > rowLimit;
+  if (truncated) {rowLimit -= 1;}
+  const outputRows = rows.slice(0, rowLimit);
+  context.tableBudget.cellsRemaining -= (outputRows.length + 1 + (truncated ? 1 : 0)) * outputColumns;
+  const prefix = context.quote + context.indent;
 
   writer.blank(context);
-  writer.push(prefix + formatRow(rows[0] ?? [], columns));
-  // The separator makes the block render as a table wherever Markdown is shown,
-  // and costs one stable line that never changes on its own.
-  writer.push(prefix + formatRow([], columns, '---'));
-  for (const row of rows.slice(1)) {
-    writer.push(prefix + formatRow(row, columns));
+  for (let index = 0; index < outputRows.length; index += 1) {
+    if (writer.truncated) {break;}
+    const cells: string[] = [];
+    const row = outputRows[index] ?? [];
+    let characters = prefix.length + outputColumns * 3 + 1;
+    for (const cell of row.slice(0, outputColumns)) {
+      if (characters + 1 > writer.remainingCharacters) {break;}
+      const text = cell ? renderCell(cell, context) : '';
+      cells.push(text);
+      characters += text.length;
+    }
+    writer.push(prefix + formatRow(cells, outputColumns));
+    if (index === 0) {writer.push(prefix + formatRow([], outputColumns, '---'));}
+  }
+  if (truncated && !writer.truncated) {
+    writer.push(prefix + formatRow([TABLE_TRUNCATION_NOTICE], outputColumns));
   }
   writer.blank({ ...context, tight: false });
 }
 
-function collectRows(node: ElementNode): ElementNode[] {
+function collectRows(node: ElementNode): { rows: ElementNode[]; truncated: boolean } {
   const rows: ElementNode[] = [];
-  const visit = (current: ElementNode): void => {
-    for (const child of current.children) {
-      if (child.type !== 'element') {
-        continue;
-      }
-      if (child.name === 'tr') {
-        rows.push(child);
-      } else if (child.name !== 'table') {
-        // A nested table belongs to its own cell, not to this table's rows.
-        visit(child);
-      }
-    }
-  };
-  visit(node);
-  return rows;
-}
+  const pending: ElementNode[] = [];
+  for (let index = node.children.length - 1; index >= 0; index -= 1) {
+    const child = node.children[index];
+    if (child?.type === 'element') {pending.push(child);}
+  }
 
-function renderRow(row: ElementNode, context: RenderContext): string[] {
-  const cells: string[] = [];
-  for (const child of row.children) {
-    if (child.type !== 'element' || (child.name !== 'td' && child.name !== 'th')) {
-      continue;
-    }
-    cells.push(renderCell(child, context));
-    // A merged cell still occupies its columns, so the row stays aligned with
-    // the rows above and below it.
-    const span = Number.parseInt(child.attributes.colspan ?? '1', 10);
-    for (let extra = 1; Number.isFinite(span) && extra < span; extra += 1) {
-      cells.push('');
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) {continue;}
+    if (current.name === 'tr') {
+      if (rows.length >= MAX_TABLE_ROWS) {
+        return { rows, truncated: true };
+      }
+      rows.push(current);
+    } else if (current.name !== 'table') {
+      // A nested table belongs to its own cell, not to this table's rows.
+      for (let index = current.children.length - 1; index >= 0; index -= 1) {
+        const child = current.children[index];
+        if (child?.type === 'element') {pending.push(child);}
+      }
     }
   }
-  return cells;
+  return { rows, truncated: false };
 }
 
+function planRow(row: ElementNode, maxCells: number): { cells: Array<ElementNode | undefined>; truncated: boolean } {
+  const cells: Array<ElementNode | undefined> = [];
+  let truncated = false;
+  for (const child of row.children) {
+    if (child.type !== 'element' || (child.name !== 'td' && child.name !== 'th')) {continue;}
+    if (cells.length >= maxCells) {
+      truncated = true;
+      break;
+    }
+    const parsedSpan = Number.parseInt(child.attributes.colspan ?? '1', 10);
+    const requestedSpan = parsedSpan > 0 ? parsedSpan : 1;
+    const span = Math.min(requestedSpan, MAX_TABLE_COLUMNS, maxCells - cells.length);
+    truncated ||= span < requestedSpan;
+    cells.push(child);
+    // A merged cell still occupies its columns, so the row stays aligned with
+    // the rows above and below it.
+    for (let extra = 1; extra < span; extra += 1) {cells.push(undefined);}
+  }
+  return { cells, truncated };
+}
 function renderCell(cell: ElementNode, context: RenderContext): string {
   const writer = new LineWriter();
   renderBlocks(cell.children, writer, { ...context, quote: '', indent: '', tight: true });
@@ -599,7 +678,13 @@ function renderCode(node: ElementNode): string {
     return text;
   }
   const runs = [...text.matchAll(/`+/g)].map((run) => run[0].length);
-  const fence = '`'.repeat(Math.max(0, ...runs) + 1);
+  let maxRun = 0;
+  for (const len of runs) {
+    if (len > maxRun) {
+      maxRun = len;
+    }
+  }
+  const fence = '`'.repeat(maxRun + 1);
   const padding = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
   return `${fence}${padding}${text}${padding}${fence}`;
 }
@@ -710,7 +795,8 @@ function renderImage(node: ElementNode): string {
   }
   // A source short enough to read is a path or a digest already. Only the
   // base64 of an image inlined into the HTML needs reducing.
-  const token = source.length <= READABLE_SOURCE_LENGTH
+  const isDocumentImageDigest = /^docx-image:[0-9a-f]{64}$/i.test(source);
+  const token = source.length <= READABLE_SOURCE_LENGTH || isDocumentImageDigest
     ? source
     : `image:${fingerprintText(source)}`;
   return `![${label}](${token})`;

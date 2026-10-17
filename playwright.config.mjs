@@ -1,5 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
+const port = Number(process.env.SHOWDOCX_WEBVIEW_TEST_PORT ?? 4173);
+const origin = `http://127.0.0.1:${port}`;
+
 export default defineConfig({
   testDir: './test/webview',
   fullyParallel: false,
@@ -10,13 +13,14 @@ export default defineConfig({
   reporter: 'line',
   timeout: 30_000,
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: origin,
     browserName: 'chromium',
     headless: true,
   },
   webServer: {
     command: 'node ./scripts/serve-webview.mjs',
-    url: 'http://127.0.0.1:4173/scripts/webview-harness.html',
+    env: { ...process.env, PORT: String(port) },
+    url: `${origin}/scripts/webview-harness.html`,
     reuseExistingServer: !process.env.CI,
     timeout: 15_000,
   },

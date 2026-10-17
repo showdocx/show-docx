@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { buildPrompt, toMessageTexts } from './chatPrompt';
 import { convertDocxToText } from '../text/docxText';
 import { getLog } from '../log';
+import type { ZipValidationOptions } from '../docxLoader';
 
 /**
  * An `@docx` chat participant: ask questions about the Word document you have
@@ -23,6 +24,7 @@ export interface ChatDocumentHost {
   /** The document in the focused viewer, if one is open. */
   activeDocument(): vscode.Uri | undefined;
   read(uri: vscode.Uri): Promise<Uint8Array>;
+  zipValidationOptions?(): ZipValidationOptions;
 }
 
 /* --------------------------------------------------------------------------
@@ -147,7 +149,7 @@ async function answer(
   try {
     const { text: converted } = await convertDocxToText(await host.read(uri), {
       stableOrderedNumbers: false,
-    });
+    }, host.zipValidationOptions?.());
     text = converted;
   } catch (error: unknown) {
     getLog().error(`Reading ${name} for the chat participant failed.`, error);
