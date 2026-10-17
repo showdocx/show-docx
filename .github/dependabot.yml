@@ -4,6 +4,13 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    ignore:
+      # docx-preview has extensive custom patches (patches/docx-preview+0.3.7.patch); pinned to 0.3.7.
+      - dependency-name: "docx-preview"
+      # Mocha 12 drops Node 18, which breaks VS Code ^1.85.0 engine promise and integration tests.
+      # Allow 11.x patch/minor updates, but ignore semver-major until minimum VS Code engine is bumped.
+      - dependency-name: "mocha"
+        update-types: ["version-update:semver-major"]
   # The workflows pin every action to a commit, so a moved tag cannot change
   # what runs with write access. This keeps those pins current.
   - package-ecosystem: github-actions
