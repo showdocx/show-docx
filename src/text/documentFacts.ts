@@ -266,14 +266,14 @@ function sanitizeSvg(bytes: Uint8Array): Uint8Array | undefined {
     let malformed = false;
     const markMalformed = (): void => {malformed = true;};
     const parser = new DOMParser({
-      errorHandler: { warning: markMalformed, error: markMalformed, fatalError: markMalformed },
+      onError: markMalformed,
     });
     const document = parser.parseFromString(source, 'image/svg+xml');
     const root = document.documentElement;
     if (malformed || !root || root.localName !== 'svg' || root.namespaceURI !== SVG_NAMESPACE) {return undefined;}
 
     for (const element of Array.from(document.getElementsByTagName('*'))) {
-      if (element.namespaceURI !== SVG_NAMESPACE || !SVG_ELEMENTS.has(element.localName)) {
+      if (element.namespaceURI !== SVG_NAMESPACE || !element.localName || !SVG_ELEMENTS.has(element.localName)) {
         element.parentNode?.removeChild(element);
         continue;
       }
@@ -296,7 +296,7 @@ function sanitizeSvg(bytes: Uint8Array): Uint8Array | undefined {
             const colon = declaration.indexOf(':');
             return colon > 0 && SVG_PRESENTATION_ATTRIBUTES.has(declaration.slice(0, colon).trim().toLowerCase());
           });
-        } else if (!namespace && SVG_ATTRIBUTES.has(name)) {
+        } else if (!namespace && name && SVG_ATTRIBUTES.has(name)) {
           allowed = safeSvgValue(value);
         }
         if (!allowed) {element.removeAttributeNode(attribute);}

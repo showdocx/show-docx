@@ -155,9 +155,9 @@ describe('Images stored in a document', () => {
     );
     for (const element of Array.from(document.getElementsByTagName('*'))) {
       assert.equal(element.namespaceURI, svgNamespace);
-      assert.ok(!['script', 'foreignObject', 'animate', 'style'].includes(element.localName));
+      assert.ok(!['script', 'foreignObject', 'animate', 'style'].includes(element.localName ?? ''));
       for (const attribute of Array.from(element.attributes)) {
-        assert.ok(!/onload|base|style|href/.test(attribute.localName));
+        assert.ok(!/onload|base|style|href/.test(attribute.localName ?? ''));
         assert.ok(!/attacker|javascript|url\(/i.test(attribute.value));
       }
     }
