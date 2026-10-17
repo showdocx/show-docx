@@ -24,3 +24,7 @@ media/banner.svg
 media/screenshots/**
 media/docx-icon.svg
 scratch/**
+BULGULAR.md
+KOD_INCELEMESI.md
+CLAUDE.md
+*.patch

@@ -1,8 +1,13 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { convertDocxToText } from '../text/docxText';
-import { FILENAME_PATTERN, stripDocumentExtension } from '../../shared/documentExtensions';
+import { SEARCH_FILENAME_PATTERN, isDocumentPath, stripDocumentExtension } from '../../shared/documentExtensions';
 import { getLog } from '../log';
+import { isPhysicalPathContained } from './mirrorSafety';
+import { MirrorWriteQueue } from './mirrorQueue';
+import type { MirrorWriteTicket } from './mirrorQueue';
+import { getWorkspaceExcludePattern } from '../utils/workspaceExclude';
+import type { ZipValidationOptions } from '../docxLoader';
 
 /**
  * An optional `.md` mirror of a document, kept next to it.
@@ -25,6 +30,7 @@ import { getLog } from '../log';
  */
 
 export type MirrorMode = 'off' | 'onChange';
+const MAX_MIRROR_DOCUMENTS = 5000;
 
 export interface MirrorSettings {
   readonly mode: MirrorMode;
@@ -34,6 +40,7 @@ export interface MirrorSettings {
 
 export interface MirrorHost {
   read(uri: vscode.Uri): Promise<Uint8Array>;
+  zipValidationOptions?(): ZipValidationOptions;
 }
 
 export function readMirrorSettings(): MirrorSettings {
@@ -79,6 +86,100 @@ export function mirrorUriFor(source: vscode.Uri, directory: string): vscode.Uri 
   return target.path.startsWith(root) ? target : undefined;
 }
 
+/** Physical containment for local files; other providers must expose no links along the path. */
+export async function isRealpathWithinWorkspace(target: vscode.Uri, base: vscode.Uri): Promise<boolean> {
+  if (target.scheme !== base.scheme || target.authority !== base.authority) {return false;}
+  if (target.scheme === 'file') {
+    // URI paths preserve drive-letter casing; native paths compare it correctly on Windows.
+    return isPhysicalPathContained(target.fsPath, base.fsPath);
+  }
+  const relative = path.posix.relative(base.path, target.path);
+  if (relative === '..' || relative.startsWith('../') || path.posix.isAbsolute(relative)) {return false;}
+
+  // Never interpret a remote/virtual URI's fsPath on the extension host. The
+  // provider API has no readlink, so links (including dangling ones) are refused.
+  try {
+    const basePath = base.path.replace(/\/+$/, '') || '/';
+    let current = target;
+    while (true) {
+      try {
+        const stat = await vscode.workspace.fs.stat(current);
+        if ((stat.type & vscode.FileType.SymbolicLink) !== 0) {return false;}
+        if (current.path === basePath && (stat.type & vscode.FileType.Directory) === 0) {return false;}
+      } catch (error) {
+        if (!isFileNotFound(error) || current.path === basePath) {return false;}
+      }
+      if (current.path === basePath) {return true;}
+      const parent = path.posix.dirname(current.path);
+      if (parent === current.path) {return false;}
+      current = current.with({ path: parent });
+    }
+  } catch {
+    return false;
+  }
+}
+
+function mirrorBase(source: vscode.Uri): vscode.Uri {
+  return vscode.workspace.getWorkspaceFolder(source)?.uri
+    ?? source.with({ path: path.posix.dirname(source.path) });
+}
+
+const writeQueue = new MirrorWriteQueue();
+const requests = new Map<string, Set<MirrorWriteTicket>>();
+const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function reserveWrite(source: vscode.Uri, target: vscode.Uri): MirrorWriteTicket {
+  // Match planning's conservative collision handling on case-insensitive disks.
+  const ticket = writeQueue.reserve(target.toString().toLowerCase());
+  const key = source.toString();
+  const pending = requests.get(key) ?? new Set<MirrorWriteTicket>();
+  pending.add(ticket);
+  requests.set(key, pending);
+  return ticket;
+}
+
+function releaseWrite(source: vscode.Uri, ticket: MirrorWriteTicket): void {
+  const key = source.toString();
+  const pending = requests.get(key);
+  pending?.delete(ticket);
+  if (pending?.size === 0) {requests.delete(key);}
+}
+
+/** Shared by workspace watchers and the editor's single-file watcher (also outside the workspace). */
+export function scheduleMirrorRefresh(source: vscode.Uri, host: MirrorHost): void {
+  if (!isDocumentPath(source.path)) {return;}
+  cancelMirrorRefresh(source);
+  const settings = readMirrorSettings();
+  if (settings.mode !== 'onChange' || !vscode.workspace.isTrusted) {return;}
+  const target = mirrorUriFor(source, settings.directory);
+  if (!target) {return;}
+  // Reserve now, not when the timer fires: a save invalidates an old conversion immediately.
+  const ticket = reserveWrite(source, target);
+  refreshTimers.set(source.toString(), setTimeout(() => {
+    refreshTimers.delete(source.toString());
+    void refreshReserved(source, target, host, ticket);
+  }, 300));
+}
+
+/** Deletion invalidates queued and in-flight conversions, not just a debounce timer. */
+export function cancelMirrorRefresh(source: vscode.Uri): void {
+  const key = source.toString();
+  const timer = refreshTimers.get(key);
+  if (timer !== undefined) {clearTimeout(timer);}
+  refreshTimers.delete(key);
+  for (const ticket of requests.get(key) ?? []) {ticket.cancel();}
+  requests.delete(key);
+}
+
+export function disposeMirrorRefreshes(): void {
+  for (const timer of refreshTimers.values()) {clearTimeout(timer);}
+  refreshTimers.clear();
+  for (const pending of requests.values()) {
+    for (const ticket of pending) {ticket.cancel();}
+  }
+  requests.clear();
+}
+
 /**
  * How a mirror names its document: the path inside the workspace folder, or
  * the file name for a document outside any folder. A path rather than a name,
@@ -86,13 +187,22 @@ export function mirrorUriFor(source: vscode.Uri, directory: string): vscode.Uri 
  */
 export function mirrorLabel(source: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(source);
+  let label: string;
   if (folder) {
-    const relative = path.posix.relative(folder.uri.path, source.path);
+    const relative = source.scheme === 'file'
+      ? path.relative(folder.uri.fsPath, source.fsPath).split(path.sep).join('/')
+      : path.posix.relative(folder.uri.path, source.path);
     if (relative !== '' && !relative.startsWith('..')) {
-      return relative;
+      label = relative;
+    } else {
+      label = path.posix.basename(source.path);
     }
+  } else {
+    label = path.posix.basename(source.path);
   }
-  return path.posix.basename(source.path);
+  // A filename is user controlled. Keep it from closing the generated comment
+  // or splitting its header across lines.
+  return label.replaceAll('-->', '-- >').replaceAll(/[\r\n]/g, ' ');
 }
 
 const HEADER = /^<!-- Generated by ShowDocx from (.+?)\. Edit the document, not this file\. -->/;
@@ -137,21 +247,24 @@ export async function refreshExistingMirror(
     getLog().warn(`Not refreshing the mirror of ${path.basename(source.path)}: showDocx.markdownMirrorDirectory must be a relative path inside the workspace folder.`);
     return false;
   }
-  const existing = await readText(target);
-  if (existing === undefined) {
-    return false;
-  }
-  if (!ownsMirror(existing, source)) {
-    getLog().warn(`Not refreshing ${path.basename(target.path)}: ShowDocx did not write it from ${path.basename(source.path)}.`);
-    return false;
-  }
+  return refreshReserved(source, target, host, reserveWrite(source, target));
+}
+
+async function refreshReserved(
+  source: vscode.Uri,
+  target: vscode.Uri,
+  host: MirrorHost,
+  ticket: MirrorWriteTicket,
+): Promise<boolean> {
   try {
-    await writeMirror(source, target, host);
-    getLog().info(`Refreshed the Markdown mirror ${path.basename(target.path)}.`);
-    return true;
+    const written = await ticket.run((isCurrent) => writeMirror(source, target, host, false, isCurrent));
+    if (written) {getLog().info(`Refreshed the Markdown mirror ${path.basename(target.path)}.`);}
+    return written;
   } catch (error: unknown) {
     getLog().error(`Refreshing the mirror of ${path.basename(source.path)} failed.`, error);
     return false;
+  } finally {
+    releaseWrite(source, ticket);
   }
 }
 
@@ -160,7 +273,7 @@ export interface MirrorPlan {
   readonly writes: Array<{ readonly source: vscode.Uri; readonly target: vscode.Uri }>;
   /** Documents that share a mirror with another; none of them is written. */
   readonly collisions: vscode.Uri[];
-  /** Documents whose mirror's name is taken by a file ShowDocx did not write. */
+  /** Documents whose mirror is foreign, unreadable, or cannot be safely contained. */
   readonly foreign: vscode.Uri[];
 }
 
@@ -198,7 +311,18 @@ export async function planMirrors(
       collisions.push(...group.map((entry) => entry.source));
       continue;
     }
-    const existing = await readExisting(only.target);
+    if (!(await isRealpathWithinWorkspace(only.target, mirrorBase(only.source)))) {
+      foreign.push(only.source);
+      continue;
+    }
+    let existing: string | undefined;
+    try {
+      existing = await readExisting(only.target);
+    } catch (error) {
+      getLog().error(`Not mirroring ${path.basename(only.source.path)}: checking the existing mirror failed.`, error);
+      foreign.push(only.source);
+      continue;
+    }
     if (existing !== undefined && !ownsMirror(existing, only.source)) {
       foreign.push(only.source);
       continue;
@@ -215,9 +339,16 @@ export async function planMirrors(
 export async function writeWorkspaceMirrors(host: MirrorHost): Promise<void> {
   const settings = readMirrorSettings();
   const documents = await vscode.workspace.findFiles(
-    `**/${FILENAME_PATTERN}`,
-    '**/node_modules/**',
+    '**/' + SEARCH_FILENAME_PATTERN,
+    getWorkspaceExcludePattern(),
+    MAX_MIRROR_DOCUMENTS + 1,
   );
+  if (documents.length > MAX_MIRROR_DOCUMENTS) {
+    void vscode.window.showWarningMessage(
+      `ShowDocx: more than ${MAX_MIRROR_DOCUMENTS} Word documents were found. Narrow the workspace before writing mirrors.`,
+    );
+    return;
+  }
   if (documents.length === 0) {
     void vscode.window.showInformationMessage('ShowDocx: no Word documents in this workspace.');
     return;
@@ -234,7 +365,7 @@ export async function writeWorkspaceMirrors(host: MirrorHost): Promise<void> {
     getLog().warn(`Not mirroring ${vscode.workspace.asRelativePath(source)}: another document's mirror has the same name.`);
   }
   for (const source of plan.foreign) {
-    getLog().warn(`Not mirroring ${vscode.workspace.asRelativePath(source)}: a file ShowDocx did not write already has its mirror's name.`);
+    getLog().warn(`Not mirroring ${vscode.workspace.asRelativePath(source)}: its mirror is foreign, unreadable, or cannot be safely contained.`);
   }
   const skipped = plan.collisions.length + plan.foreign.length;
   if (plan.writes.length === 0) {
@@ -249,7 +380,7 @@ export async function writeWorkspaceMirrors(host: MirrorHost): Promise<void> {
     : `in ${settings.directory}`;
   const skippedNote = skipped === 0
     ? ''
-    : ` ${skipped} document${skipped === 1 ? ' is' : 's are'} skipped, because ${skipped === 1 ? 'its' : 'their'} mirror's name is taken; the ShowDocx log lists ${skipped === 1 ? 'it' : 'them'}.`;
+    : ` ${skipped} document${skipped === 1 ? ' is' : 's are'} skipped because of mirror collisions, ownership or safety checks; see the ShowDocx log.`;
   const count = plan.writes.length;
   const choice = await vscode.window.showWarningMessage(
     `Write a Markdown mirror for ${count} document${count === 1 ? '' : 's'}?`,
@@ -278,8 +409,8 @@ export async function writeWorkspaceMirrors(host: MirrorHost): Promise<void> {
           increment: 100 / count,
         });
         try {
-          await writeMirror(source, target, host);
-          written += 1;
+          if (await writePlannedMirror(source, target, host)) {written += 1;}
+          else {failures.push(path.basename(source.path));}
         } catch (error: unknown) {
           // One unreadable document must not end the run over the others.
           getLog().error(`Mirroring ${path.basename(source.path)} failed.`, error);
@@ -300,17 +431,51 @@ export async function writeWorkspaceMirrors(host: MirrorHost): Promise<void> {
   void vscode.window.showInformationMessage(summary);
 }
 
+/** Commit one entry after explicit batch confirmation; the plan itself grants no ownership. */
+export async function writePlannedMirror(source: vscode.Uri, target: vscode.Uri, host: MirrorHost): Promise<boolean> {
+  const ticket = reserveWrite(source, target);
+  try {
+    return await ticket.run((isCurrent) => writeMirror(source, target, host, true, isCurrent));
+  } finally {
+    releaseWrite(source, ticket);
+  }
+}
+
 async function writeMirror(
   source: vscode.Uri,
   target: vscode.Uri,
   host: MirrorHost,
-): Promise<void> {
+  allowCreate: boolean,
+  isCurrent: () => boolean,
+): Promise<boolean> {
+  const canWrite = async (): Promise<boolean> => {
+    if (!isCurrent() || (!allowCreate && !vscode.workspace.isTrusted)) {return false;}
+    if (!(await isRealpathWithinWorkspace(target, mirrorBase(source)))) {
+      getLog().warn(`Not mirroring ${path.basename(source.path)}: mirror containment could not be verified.`);
+      return false;
+    }
+    const existing = await readText(target);
+    if (existing === undefined ? !allowCreate : !ownsMirror(existing, source)) {
+      getLog().warn(`Not mirroring ${path.basename(source.path)}: its mirror is missing or is not owned by this document.`);
+      return false;
+    }
+    return isCurrent();
+  };
+  if (!(await canWrite())) {return false;}
   const { text } = await convertDocxToText(await host.read(source), {
     // A mirror is read as a diff, so the numbering that keeps a diff small is
     // the right one — the same text the editor's own comparison shows.
     stableOrderedNumbers: true,
-  });
-  await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(mirrorContents(source, text)));
+  }, host.zipValidationOptions?.());
+  const contents = new TextEncoder().encode(mirrorContents(source, text));
+  if (!isCurrent()) {return false;}
+  // The document may have been deleted while conversion was in flight.
+  await vscode.workspace.fs.stat(source);
+  // Planning, confirmation and conversion all await user/provider work. Recheck
+  // ownership and physical containment at the actual commit, under the same queue.
+  if (!(await canWrite())) {return false;}
+  await vscode.workspace.fs.writeFile(target, contents);
+  return true;
 }
 
 /**
@@ -327,7 +492,12 @@ export function mirrorContents(source: vscode.Uri, text: string): string {
 async function readText(uri: vscode.Uri): Promise<string | undefined> {
   try {
     return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
-  } catch {
-    return undefined;
+  } catch (error) {
+    if (isFileNotFound(error)) {return undefined;}
+    throw error;
   }
+}
+
+function isFileNotFound(error: unknown): boolean {
+  return error instanceof vscode.FileSystemError && error.code === 'FileNotFound';
 }

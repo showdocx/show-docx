@@ -48,6 +48,11 @@
     "document"
   ],
   "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:**/*.docx",
+    "workspaceContains:**/*.docm",
+    "workspaceContains:**/*.dotx",
+    "workspaceContains:**/*.dotm",
     "onCustomEditor:showDocx.docxViewer",
     "onLanguageModelTool:showdocx_readDocx"
   ],
@@ -388,10 +393,12 @@
   },
   "dependencies": {
     "@vscode/codicons": "^0.0.44",
-    "docx-preview": "^0.3.7",
+    "@xmldom/xmldom": "^0.8.15",
+    "docx-preview": "0.3.7",
     "dompurify": "^3.3.1",
     "jszip": "^3.10.1",
-    "mammoth": "^1.12.0"
+    "mammoth": "^1.12.0",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

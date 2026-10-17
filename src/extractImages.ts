@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { freeName, imageName, readMedia } from './text/documentFacts';
 import { stripDocumentExtension } from '../shared/documentExtensions';
 import { getLog } from './log';
+import type { ZipValidationOptions } from './docxLoader';
 
 /**
  * Writes the images out of a document to a folder.
@@ -14,6 +15,7 @@ import { getLog } from './log';
 
 export interface ExtractImagesHost {
   read(uri: vscode.Uri): Promise<Uint8Array>;
+  zipValidationOptions?(): ZipValidationOptions;
 }
 
 export async function extractImages(
@@ -22,16 +24,16 @@ export async function extractImages(
 ): Promise<void> {
   if (!source) {
     void vscode.window.showWarningMessage(
-      'ShowDocx: open or select a Word document to extract its images.',
+      'ShowDocx: open or select a Word document to extract its valid images.',
     );
     return;
   }
 
   const name = path.basename(source.path);
   try {
-    const media = await readMedia(await host.read(source));
+    const media = await readMedia(await host.read(source), host.zipValidationOptions?.());
     if (media.length === 0) {
-      void vscode.window.showInformationMessage(`ShowDocx: ${name} contains no images.`);
+      void vscode.window.showInformationMessage(`ShowDocx: ${name} contains no valid images.`);
       return;
     }
 
@@ -40,7 +42,7 @@ export async function extractImages(
       canSelectFolders: true,
       canSelectMany: false,
       openLabel: 'Extract here',
-      title: `Extract ${media.length} image${media.length === 1 ? '' : 's'} from ${name}`,
+      title: `Extract ${media.length} valid image${media.length === 1 ? '' : 's'} from ${name}`,
       defaultUri: source.with({ path: path.posix.dirname(source.path) }),
     });
     const target = folder?.[0];
@@ -87,9 +89,9 @@ export async function extractImages(
       written.push(file);
     }
 
-    getLog().info(`Extracted ${written.length} image(s) from ${name} to ${target.fsPath}.`);
+    getLog().info(`Extracted ${written.length} valid image(s) from ${name} to ${target.fsPath}.`);
     void vscode.window.showInformationMessage(
-      `ShowDocx extracted ${written.length} image${written.length === 1 ? '' : 's'} from ${name}.`,
+      `ShowDocx extracted ${written.length} valid image${written.length === 1 ? '' : 's'} from ${name}.`,
       'Show Folder',
     ).then((choice) => {
       if (choice === 'Show Folder') {

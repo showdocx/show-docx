@@ -1,6 +1,8 @@
 import JSZip from 'jszip';
 import { decodeEntities } from './htmlToText';
 import { xmlToLines } from './searchText';
+import { loadAndValidateZip } from '../docxLoader';
+import { readHiddenStyleInfo, removeHiddenRuns, scanXmlTags, xmlAttribute } from './xmlScanner';
 
 /**
  * The structure a document declares about itself: which paragraphs are
@@ -51,19 +53,21 @@ export interface DocumentStructure {
 }
 
 export async function readDocumentStructure(data: Uint8Array | JSZip): Promise<DocumentStructure> {
-  const zip = data instanceof JSZip ? data : await JSZip.loadAsync(data);
+  const zip = data instanceof JSZip ? data : await loadAndValidateZip(data);
   const [styles, body, comments, extended] = await Promise.all([
     readPart(zip, 'word/styles.xml'),
     readPart(zip, 'word/document.xml'),
     readPart(zip, 'word/comments.xml'),
     readPart(zip, 'word/commentsExtended.xml'),
   ]);
+  const hiddenStyles = readHiddenStyleInfo(styles);
+  const visibleBody = removeHiddenRuns(body, hiddenStyles);
 
   return {
     headingStyles: readHeadingStyles(styles),
-    comments: readComments(comments, extended),
-    commentOrder: readCommentOrder(body),
-    revisions: readRevisions(body),
+    comments: readComments(comments, extended, hiddenStyles),
+    commentOrder: readCommentOrder(visibleBody),
+    revisions: readRevisions(visibleBody),
   };
 }
 
@@ -95,27 +99,88 @@ const BUILT_IN_LEVELS: Record<string, number> = {
  */
 export function readHeadingStyles(stylesXml: string): HeadingStyle[] {
   const byId = new Map<string, StyleRecord>();
-  for (const block of stylesXml.match(/<w:style\b[\s\S]*?<\/w:style>/g) ?? []) {
-    if (!/w:type="paragraph"/.test(block)) {
+  let currentStyle: {
+    styleId?: string;
+    type?: string;
+    name?: string;
+    basedOn?: string;
+    outlineLevel?: number;
+  } | undefined;
+
+  for (const tag of scanXmlTags(stylesXml)) {
+    if (tag.name === 'w:style') {
+      if (tag.closing) {
+        if (currentStyle?.type === 'paragraph' && currentStyle.styleId) {
+          byId.set(currentStyle.styleId, {
+            styleId: currentStyle.styleId,
+            name: currentStyle.name ?? currentStyle.styleId,
+            ...(currentStyle.basedOn ? { basedOn: currentStyle.basedOn } : {}),
+            ...(currentStyle.outlineLevel !== undefined ? { outlineLevel: currentStyle.outlineLevel } : {}),
+          });
+        }
+        currentStyle = undefined;
+      } else if (!tag.selfClosing) {
+        currentStyle = {
+          styleId: xmlAttribute(tag.attributes, 'w:styleId'),
+          type: xmlAttribute(tag.attributes, 'w:type'),
+        };
+      }
       continue;
     }
-    const styleId = attribute(block, 'w:styleId');
-    if (!styleId) {
-      continue;
+    if (!currentStyle || tag.closing) {continue;}
+    if (tag.name === 'w:name') {
+      currentStyle.name = xmlAttribute(tag.attributes, 'w:val');
+    } else if (tag.name === 'w:basedOn') {
+      currentStyle.basedOn = xmlAttribute(tag.attributes, 'w:val');
+    } else if (tag.name === 'w:outlineLvl') {
+      const outline = Number.parseInt(xmlAttribute(tag.attributes, 'w:val') ?? '', 10);
+      if (Number.isFinite(outline)) {currentStyle.outlineLevel = outline;}
     }
-    const outline = attributeOf(block, 'w:outlineLvl', 'w:val');
-    const level = Number.parseInt(outline ?? '', 10);
-    byId.set(styleId, {
-      styleId,
-      name: attributeOf(block, 'w:name', 'w:val') ?? styleId,
-      basedOn: attributeOf(block, 'w:basedOn', 'w:val'),
-      outlineLevel: Number.isFinite(level) ? level : undefined,
-    });
   }
+
+  const levels = new Map<string, number | undefined>();
+  const resolve = (styleId: string): number | undefined => {
+    if (levels.has(styleId)) {return levels.get(styleId);}
+    const chain: string[] = [];
+    const seen = new Set<string>();
+    let currentId: string | undefined = styleId;
+    let level: number | undefined;
+
+    while (currentId !== undefined) {
+      if (levels.has(currentId)) {
+        level = levels.get(currentId);
+        break;
+      }
+      if (seen.has(currentId)) {break;}
+      seen.add(currentId);
+      const style = byId.get(currentId);
+      if (!style) {break;}
+
+      if (style.outlineLevel !== undefined && style.outlineLevel >= 0 && style.outlineLevel <= 8) {
+        level = style.outlineLevel + 1;
+        levels.set(currentId, level);
+        break;
+      }
+      const namedLevel = levelFromName(style.name);
+      if (namedLevel !== undefined) {
+        level = namedLevel;
+        levels.set(currentId, level);
+        break;
+      }
+      chain.push(currentId);
+      currentId = style.basedOn;
+    }
+
+    for (let index = chain.length - 1; index >= 0; index -= 1) {
+      const id = chain[index];
+      if (id !== undefined) {levels.set(id, level);}
+    }
+    return level;
+  };
 
   const headings: HeadingStyle[] = [];
   for (const style of byId.values()) {
-    const level = resolveLevel(style, byId, new Set());
+    const level = resolve(style.styleId);
     if (level !== undefined) {
       headings.push({ styleId: style.styleId, name: style.name, level });
     }
@@ -123,28 +188,6 @@ export function readHeadingStyles(stylesXml: string): HeadingStyle[] {
   return headings.sort((left, right) => left.level - right.level
     || left.styleId.localeCompare(right.styleId));
 }
-
-function resolveLevel(
-  style: StyleRecord | undefined,
-  byId: Map<string, StyleRecord>,
-  seen: Set<string>,
-): number | undefined {
-  if (!style || seen.has(style.styleId)) {
-    // A style based on itself, directly or around a chain, would not terminate.
-    return undefined;
-  }
-  seen.add(style.styleId);
-
-  if (style.outlineLevel !== undefined && style.outlineLevel >= 0 && style.outlineLevel <= 8) {
-    return style.outlineLevel + 1;
-  }
-  const byName = levelFromName(style.name);
-  if (byName !== undefined) {
-    return byName;
-  }
-  return style.basedOn ? resolveLevel(byId.get(style.basedOn), byId, seen) : undefined;
-}
-
 export function levelFromName(name: string): number | undefined {
   const normalized = name.trim().toLowerCase();
   const built = BUILT_IN_LEVELS[normalized];
@@ -159,51 +202,74 @@ export function levelFromName(name: string): number | undefined {
  * Comments and revisions
  * ----------------------------------------------------------------------- */
 
-export function readComments(commentsXml: string, extendedXml: string): DocumentComment[] {
+export function readComments(
+  commentsXml: string,
+  extendedXml: string,
+  hiddenStyles?: ReturnType<typeof readHiddenStyleInfo>,
+): DocumentComment[] {
   const done = new Set<string>();
   const parentOf = new Map<string, string>();
-  for (const entry of extendedXml.match(/<w15:commentEx\b[^>]*\/?>/g) ?? []) {
-    const paraId = attribute(entry, 'w15:paraId');
-    if (!paraId) {
-      continue;
-    }
-    if (attribute(entry, 'w15:done') === '1') {
-      done.add(paraId);
-    }
-    const parent = attribute(entry, 'w15:paraIdParent');
-    if (parent) {
-      parentOf.set(paraId, parent);
-    }
+  for (const tag of scanXmlTags(extendedXml)) {
+    if (tag.name !== 'w15:commentEx' || tag.closing) {continue;}
+    const paraId = xmlAttribute(tag.attributes, 'w15:paraId');
+    if (!paraId) {continue;}
+    if (attribute(tag.attributes, 'w15:done') === '1') {done.add(paraId);}
+    const parent = xmlAttribute(tag.attributes, 'w15:paraIdParent');
+    if (parent) {parentOf.set(paraId, parent);}
   }
 
-  // A thread is recorded against paragraph ids, so a comment has to be found by
-  // the id of its own last paragraph before any of it can be applied.
+  interface CommentBuilder {
+    readonly start: number;
+    readonly attributes: string;
+    readonly paraIds: string[];
+  }
+  const MAX_COMMENTS = 10000;
+  const MAX_COMMENT_DEPTH = 64;
+  const stack: CommentBuilder[] = [];
   const commentOfParagraph = new Map<string, string>();
+  const paraIdsByComment = new Map<string, string[]>();
   const comments: DocumentComment[] = [];
-  const paragraphIds: Array<{ id: string; paraIds: string[] }> = [];
+  let ignoredDepth = 0;
 
-  for (const block of commentsXml.match(/<w:comment\b[\s\S]*?<\/w:comment>/g) ?? []) {
-    const id = attribute(block, 'w:id');
-    if (id === undefined) {
+  for (const tag of scanXmlTags(commentsXml)) {
+    if (tag.name === 'w:comment') {
+      if (tag.closing) {
+        if (ignoredDepth > 0) {
+          ignoredDepth -= 1;
+          continue;
+        }
+        const builder = stack.pop();
+        if (!builder) {continue;}
+        const id = attribute(builder.attributes, 'w:id');
+        if (id === undefined) {continue;}
+        for (const paraId of builder.paraIds) {commentOfParagraph.set(paraId, id);}
+        paraIdsByComment.set(id, builder.paraIds);
+        const block = commentsXml.slice(builder.start, tag.end);
+        comments.push({
+          id,
+          author: attribute(builder.attributes, 'w:author') ?? 'Unknown',
+          initials: attribute(builder.attributes, 'w:initials'),
+          date: attribute(builder.attributes, 'w:date'),
+          text: xmlToLines(block, hiddenStyles).trim(),
+        });
+      } else if (!tag.selfClosing) {
+        if (ignoredDepth > 0 || stack.length >= MAX_COMMENT_DEPTH || comments.length + stack.length >= MAX_COMMENTS) {
+          ignoredDepth += 1;
+        } else {
+          stack.push({ start: tag.start, attributes: tag.attributes, paraIds: [] });
+        }
+      }
       continue;
     }
-    const paraIds = [...block.matchAll(/w14:paraId="([^"]+)"/g)].map((match) => match[1] ?? '');
-    for (const paraId of paraIds) {
-      commentOfParagraph.set(paraId, id);
+    if (!tag.closing && ignoredDepth === 0) {
+      const paraId = xmlAttribute(tag.attributes, 'w14:paraId');
+      const current = stack[stack.length - 1];
+      if (paraId && current) {current.paraIds.push(paraId);}
     }
-    paragraphIds.push({ id, paraIds });
-
-    comments.push({
-      id,
-      author: attribute(block, 'w:author') ?? 'Unknown',
-      initials: attribute(block, 'w:initials'),
-      date: attribute(block, 'w:date'),
-      text: xmlToLines(block).trim(),
-    });
   }
 
   return comments.map((comment) => {
-    const paraIds = paragraphIds.find((entry) => entry.id === comment.id)?.paraIds ?? [];
+    const paraIds = paraIdsByComment.get(comment.id) ?? [];
     const resolved = paraIds.some((paraId) => done.has(paraId));
     const parentParagraph = paraIds
       .map((paraId) => parentOf.get(paraId))
@@ -216,7 +282,6 @@ export function readComments(commentsXml: string, extendedXml: string): Document
     };
   });
 }
-
 /**
  * Comment ids in the order the body anchors them, which is reading order. A
  * comment is anchored where its range starts, or at its reference when it has
@@ -224,9 +289,12 @@ export function readComments(commentsXml: string, extendedXml: string): Document
  */
 export function readCommentOrder(documentXml: string): string[] {
   const order: string[] = [];
-  for (const match of documentXml.matchAll(/<w:comment(?:RangeStart|Reference)\b[^>]*w:id="([^"]+)"/g)) {
-    const id = match[1];
-    if (id !== undefined && !order.includes(id)) {
+  const seen = new Set<string>();
+  for (const tag of scanXmlTags(documentXml)) {
+    if (tag.closing || (tag.name !== 'w:commentRangeStart' && tag.name !== 'w:commentReference')) {continue;}
+    const id = xmlAttribute(tag.attributes, 'w:id');
+    if (id !== undefined && !seen.has(id)) {
+      seen.add(id);
       order.push(id);
     }
   }
@@ -250,88 +318,144 @@ export function readCommentOrder(documentXml: string): string[] {
  *   inside a `w:ins`. Both are listed; the insertion shows what is left of it.
  */
 export function readRevisions(documentXml: string): DocumentRevision[] {
-  const revisions: DocumentRevision[] = [];
-  for (const element of revisionElements(documentXml)) {
-    // A deletion stores its text in w:delText, which xmlToLines drops on
-    // purpose; unwrap it so the panel can show what was removed.
-    const readable = element.kind === 'del'
-      ? element.inner.replaceAll(/<w:delText\b([^>]*)>/g, '<w:t$1>')
-        .replaceAll('</w:delText>', '</w:t>')
-      : element.inner;
-    const text = xmlToLines(readable).replaceAll('\n', ' ').trim();
-    if (text === '') {
-      continue;
-    }
-    const id = attribute(element.attributes, 'w:id');
-    revisions.push({
-      type: element.kind === 'ins' ? 'insertion' : 'deletion',
-      ...(id !== undefined ? { id } : {}),
-      author: attribute(element.attributes, 'w:author') ?? 'Unknown',
-      date: attribute(element.attributes, 'w:date'),
-      text,
-    });
+  interface RevisionBuilder {
+    readonly kind: 'ins' | 'del';
+    readonly attributes: string;
+    text: string;
+    complete: boolean;
   }
-  return revisions;
-}
 
-interface RevisionElement {
-  readonly kind: 'ins' | 'del';
-  readonly attributes: string;
-  readonly inner: string;
-}
+  const MAX_REVISION_ELEMENTS = 10000;
+  const MAX_REVISION_DEPTH = 64;
+  const MAX_TOTAL_REVISION_TEXT = 1024 * 1024;
+  const builders: RevisionBuilder[] = [];
+  const active: RevisionBuilder[] = [];
+  const textElements: string[] = [];
+  const runs: boolean[] = [];
+  let cursor = 0;
+  let fallbackDepth = 0;
+  let fieldDepth = 0;
+  let ignoredRevisionDepth = 0;
+  let totalText = 0;
 
-/** Every non-empty `w:ins` and `w:del`, outer before inner, in document order. */
-function revisionElements(xml: string): RevisionElement[] {
-  const elements: RevisionElement[] = [];
-  const opening = /<w:(ins|del)\b([^>]*?)(\/?)>/g;
-  for (const match of xml.matchAll(opening)) {
-    const [whole, kind, attributes = '', selfClosing] = match;
-    if (selfClosing === '/' || (kind !== 'ins' && kind !== 'del')) {
-      continue;
+  const appendText = (value: string): void => {
+    if (value === '' || totalText >= MAX_TOTAL_REVISION_TEXT || fallbackDepth > 0 || fieldDepth > 0) {return;}
+    const textElement = textElements[textElements.length - 1];
+    if (textElement !== 'w:t' && textElement !== 'w:delText') {return;}
+    if (runs[runs.length - 1]) {return;}
+
+    for (const revision of active) {
+      if (textElement === 'w:delText' && revision.kind !== 'del') {continue;}
+      const addition = value.slice(0, MAX_TOTAL_REVISION_TEXT - totalText);
+      revision.text += addition;
+      totalText += addition.length;
+      if (totalText >= MAX_TOTAL_REVISION_TEXT) {break;}
     }
-    const start = (match.index ?? 0) + whole.length;
-    const end = closingTagOf(xml, kind, start);
-    if (end === -1) {
-      continue;
-    }
-    elements.push({ kind, attributes, inner: xml.slice(start, end) });
-  }
-  return elements;
-}
+  };
 
-/** Where the `</w:kind>` that closes an element opened just before `from` starts. */
-function closingTagOf(xml: string, kind: string, from: number): number {
-  const tags = new RegExp(`<(/?)w:${kind}\\b[^>]*?(/?)>`, 'g');
-  tags.lastIndex = from;
-  let depth = 1;
-  for (let match = tags.exec(xml); match; match = tags.exec(xml)) {
-    if (match[1] === '/') {
-      depth -= 1;
-      if (depth === 0) {
-        return match.index;
+  const appendSpace = (): void => {
+    if (totalText >= MAX_TOTAL_REVISION_TEXT || fallbackDepth > 0 || fieldDepth > 0) {return;}
+    for (const revision of active) {
+      if (revision.text !== '' && !revision.text.endsWith(' ')) {
+        revision.text += ' ';
+        totalText += 1;
       }
-    } else if (match[2] !== '/') {
-      depth += 1;
+    }
+  };
+
+  for (const tag of scanXmlTags(documentXml)) {
+    appendText(documentXml.slice(cursor, tag.start));
+    cursor = tag.end;
+
+    if (tag.name === 'w:ins' || tag.name === 'w:del') {
+      if (tag.closing) {
+        if (ignoredRevisionDepth > 0) {
+          ignoredRevisionDepth -= 1;
+        } else {
+          for (let index = active.length - 1; index >= 0; index -= 1) {
+            const revision = active[index];
+            if (revision?.kind === tag.name.slice(2)) {
+              revision.complete = true;
+              active.splice(index, 1);
+              break;
+            }
+          }
+        }
+      } else if (!tag.selfClosing) {
+        if (ignoredRevisionDepth > 0 || active.length >= MAX_REVISION_DEPTH || builders.length >= MAX_REVISION_ELEMENTS) {
+          ignoredRevisionDepth += 1;
+        } else {
+          const revision: RevisionBuilder = {
+            kind: tag.name.slice(2) as 'ins' | 'del',
+            attributes: tag.attributes,
+            text: '',
+            complete: false,
+          };
+          builders.push(revision);
+          active.push(revision);
+        }
+      }
+      continue;
+    }
+
+    if (tag.name === 'w:r') {
+      if (tag.closing) {runs.pop();}
+      else if (!tag.selfClosing) {runs.push(false);}
+      continue;
+    }
+    if (!tag.closing && (tag.name === 'w:vanish' || tag.name === 'w:specVanish')) {
+      const value = attribute(tag.attributes, 'w:val')?.toLowerCase();
+      if (value !== '0' && value !== 'false' && value !== 'off' && runs.length > 0) {
+        runs[runs.length - 1] = true;
+      }
+    }
+
+    if (tag.name === 'mc:Fallback') {
+      fallbackDepth = Math.max(0, fallbackDepth + (tag.closing ? -1 : tag.selfClosing ? 0 : 1));
+    } else if (tag.name === 'w:instrText') {
+      fieldDepth = Math.max(0, fieldDepth + (tag.closing ? -1 : tag.selfClosing ? 0 : 1));
+    } else if (tag.name === 'w:t' || tag.name === 'w:delText') {
+      if (tag.closing) {textElements.pop();}
+      else if (!tag.selfClosing) {textElements.push(tag.name);}
+    } else if (!tag.closing && (tag.name === 'w:tab' || tag.name === 'w:br')) {
+      appendSpace();
+    } else if (tag.closing && tag.name === 'w:p') {
+      appendSpace();
     }
   }
-  return -1;
-}
 
+  appendText(documentXml.slice(cursor));
+  return builders
+    .filter((revision) => revision.complete)
+    .map((revision) => ({
+      revision,
+      text: decodeEntities(revision.text).replaceAll(/\s+/g, ' ').trim(),
+    }))
+    .filter(({ text }) => text !== '')
+    .map(({ revision, text }) => {
+      const id = attribute(revision.attributes, 'w:id');
+      return {
+        type: revision.kind === 'ins' ? 'insertion' : 'deletion',
+        ...(id !== undefined ? { id } : {}),
+        author: attribute(revision.attributes, 'w:author') ?? 'Unknown',
+        date: attribute(revision.attributes, 'w:date'),
+        text,
+      };
+    });
+}
 /* --------------------------------------------------------------------------
  * XML reading
  * ----------------------------------------------------------------------- */
 
 /** An attribute's value, with the entities XML escapes it with decoded. */
 function attribute(xml: string, name: string): string | undefined {
+  const parsed = xmlAttribute(xml, name);
+  if (parsed !== undefined) {
+    return parsed;
+  }
   const escaped = name.replaceAll(':', '\\:');
   const match = new RegExp(`(?:^|\\s)${escaped}="([^"]*)"`).exec(xml);
   return match?.[1] === undefined ? undefined : decodeEntities(match[1]);
-}
-
-/** The value of an attribute on the first `<element>` in the fragment. */
-function attributeOf(xml: string, element: string, name: string): string | undefined {
-  const match = new RegExp(`<${element}\\b([^>]*)/?>`).exec(xml);
-  return match ? attribute(match[1] ?? '', name) : undefined;
 }
 
 async function readPart(zip: JSZip, name: string): Promise<string> {

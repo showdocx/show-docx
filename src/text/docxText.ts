@@ -1,7 +1,11 @@
 import * as mammoth from 'mammoth';
+import type JSZip from 'jszip';
 import { fingerprintBytes } from './fingerprint';
 import { htmlToText } from './htmlToText';
 import type { TextOptions } from './htmlToText';
+import { loadAndValidateZip } from '../docxLoader';
+import type { ZipValidationOptions } from '../docxLoader';
+import { readHiddenStyleInfo, removeHiddenRuns, removeXmlElements } from './xmlScanner';
 
 /**
  * Converts a DOCX to readable text in the extension host, for the callers that
@@ -12,6 +16,8 @@ import type { TextOptions } from './htmlToText';
  * Keeps a document's own heading and title styles recognizable, so a diff shows
  * where in the document a change landed rather than a wall of paragraphs.
  */
+const HIDDEN_PROPERTIES = new Set(['w:vanish', 'w:specVanish']);
+
 const STYLE_MAP = [
   "p[style-name='Title'] => h1:fresh",
   "p[style-name='Subtitle'] => p:fresh",
@@ -25,12 +31,49 @@ export interface DocxTextResult {
   readonly messages: string[];
 }
 
+async function preprocessDocxData(data: Uint8Array, zipOptions?: ZipValidationOptions): Promise<Buffer> {
+  const zip = await loadAndValidateZip(data, zipOptions);
+  return Buffer.from(await makeVisibleDocxBytes(data, zip));
+}
+
+/** Removes hidden runs from text-bearing parts before any webview renderer sees them. */
+export async function makeVisibleDocxBytes(data: Uint8Array, zip: JSZip): Promise<Uint8Array> {
+  const stylesXml = await zip.file('word/styles.xml')?.async('text') ?? '';
+  const styles = readHiddenStyleInfo(stylesXml);
+  let changed = false;
+  const textParts = Object.keys(zip.files).filter((name) =>
+    /^word\/(?:document|footnotes|endnotes|header\d+|footer\d+|comments)\.xml$/.test(name),
+  );
+  for (const name of textParts) {
+    const file = zip.file(name);
+    if (!file || file.dir) {continue;}
+    const originalXml = await file.async('text');
+    const visibleXml = removeXmlElements(removeHiddenRuns(originalXml, styles), HIDDEN_PROPERTIES);
+    if (visibleXml !== originalXml) {
+      zip.file(name, visibleXml);
+      changed = true;
+    }
+  }
+  // Visibility has been resolved above, including style toggles and direct
+  // overrides. Renderers must not reinterpret the remaining visible runs using
+  // their own incomplete implementations of Word's hidden-text inheritance.
+  const visibleStyles = removeXmlElements(stylesXml, HIDDEN_PROPERTIES);
+  if (visibleStyles !== stylesXml) {
+    zip.file('word/styles.xml', visibleStyles);
+    changed = true;
+  }
+  if (!changed) {return data;}
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 1 } });
+}
+
 export async function convertDocxToText(
   data: Uint8Array,
   options: TextOptions = {},
+  zipOptions?: ZipValidationOptions,
 ): Promise<DocxTextResult> {
+  const buffer = await preprocessDocxData(data, zipOptions);
   const result = await mammoth.convertToHtml(
-    { buffer: Buffer.from(data.buffer, data.byteOffset, data.byteLength) },
+    { buffer },
     {
       styleMap: STYLE_MAP,
       // An image reaches the HTML as a digest of its own bytes. Inlining the
@@ -53,9 +96,13 @@ export async function convertDocxToText(
  * The document as unformatted text: one paragraph per line, no markers at all.
  * For pasting somewhere that would show Markdown syntax rather than render it.
  */
-export async function convertDocxToPlainText(data: Uint8Array): Promise<DocxTextResult> {
+export async function convertDocxToPlainText(
+  data: Uint8Array,
+  zipOptions?: ZipValidationOptions,
+): Promise<DocxTextResult> {
+  const buffer = await preprocessDocxData(data, zipOptions);
   const result = await mammoth.extractRawText({
-    buffer: Buffer.from(data.buffer, data.byteOffset, data.byteLength),
+    buffer,
   });
   const text = result.value
     .replaceAll('\r\n', '\n')

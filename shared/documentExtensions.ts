@@ -23,10 +23,17 @@ export const RESOURCE_EXTNAME_CLAUSE = DOCUMENT_EXTENSIONS
   .map((extension) => `resourceExtname == ${extension}`)
   .join(' || ');
 
-/** For a custom editor selector: `*.{docx,docm,dotx,dotm}`. */
-export const FILENAME_PATTERN = `*.{${DOCUMENT_EXTENSIONS
-  .map((extension) => extension.slice(1))
-  .join(',')}}`;
+/** For the custom-editor selector, kept in step with package.json. */
+export const FILENAME_PATTERN = '*.{'
+  + DOCUMENT_EXTENSIONS.map((extension) => extension.slice(1)).join(',')
+  + '}';
+
+/** For workspace searches and watchers, with case-insensitive extensions. */
+export const SEARCH_FILENAME_PATTERN = '*.{'
+  + DOCUMENT_EXTENSIONS
+    .map((extension) => extension.slice(1).replace(/[a-z]/gi, (letter) => '[' + letter.toLowerCase() + letter.toUpperCase() + ']'))
+    .join(',')
+  + '}';
 
 export function isDocumentPath(value: string): boolean {
   const lower = value.toLowerCase();

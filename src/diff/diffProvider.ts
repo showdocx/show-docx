@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { convertDocxToText } from '../text/docxText';
 import { getLog } from '../log';
+import type { ZipValidationOptions } from '../docxLoader';
 
 /**
  * Serves the readable text of a DOCX revision to the diff editor, as a virtual
@@ -63,6 +64,7 @@ export interface DiffContentHost {
   readAtRef(uri: vscode.Uri, ref: string): Promise<Uint8Array>;
   /** Watches the file on disk, so an open diff does not go stale. */
   watch(uri: vscode.Uri, onChange: () => void): vscode.Disposable;
+  zipValidationOptions?(): ZipValidationOptions;
 }
 
 export class DocxDiffContentProvider
@@ -70,6 +72,8 @@ implements vscode.TextDocumentContentProvider, vscode.Disposable {
   private readonly changeEmitter = new vscode.EventEmitter<vscode.Uri>();
   /** One watcher per open working-tree side, keyed by its virtual URI. */
   private readonly watchers = new Map<string, vscode.Disposable>();
+  /** A preflighted historical blob, consumed once when VS Code requests it. */
+  private readonly preloadedRevisions = new Map<string, Uint8Array>();
   private readonly subscriptions: vscode.Disposable[] = [];
 
   public readonly onDidChange = this.changeEmitter.event;
@@ -78,8 +82,22 @@ implements vscode.TextDocumentContentProvider, vscode.Disposable {
     this.subscriptions.push(vscode.workspace.onDidCloseTextDocument((document) => {
       if (document.uri.scheme === DIFF_SCHEME) {
         this.stopWatching(document.uri);
+        this.clearPreflight(document.uri);
       }
     }));
+  }
+
+  /** Reads a revision before opening the diff and reuses those bytes in the editor. */
+  public async preflightRevision(uri: vscode.Uri): Promise<void> {
+    const source = decodeDiffUri(uri);
+    if (!source || source.ref === undefined) {
+      throw new Error('ShowDocx could not tell which document revision to compare.');
+    }
+    this.preloadedRevisions.set(uri.toString(), await this.host.readAtRef(source.uri, source.ref));
+  }
+
+  public clearPreflight(uri: vscode.Uri): void {
+    this.preloadedRevisions.delete(uri.toString());
   }
 
   public async provideTextDocumentContent(
@@ -91,14 +109,23 @@ implements vscode.TextDocumentContentProvider, vscode.Disposable {
       throw new Error('ShowDocx could not tell which document this comparison is for.');
     }
 
-    const data = source.ref === undefined
-      ? await this.readAndWatchWorkingTree(uri, source.uri)
-      : await this.host.readAtRef(source.uri, source.ref);
+    let data: Uint8Array;
+    if (source.ref === undefined) {
+      data = await this.readAndWatchWorkingTree(uri, source.uri);
+    } else {
+      const preloaded = this.preloadedRevisions.get(uri.toString());
+      if (preloaded) {
+        this.preloadedRevisions.delete(uri.toString());
+        data = preloaded;
+      } else {
+        data = await this.host.readAtRef(source.uri, source.ref);
+      }
+    }
     if (token.isCancellationRequested) {
       return '';
     }
 
-    const { text, messages } = await convertDocxToText(data);
+    const { text, messages } = await convertDocxToText(data, {}, this.host.zipValidationOptions?.());
     for (const message of messages) {
       getLog().warn(`${path.basename(source.uri.path)}: ${message}`);
     }
@@ -116,6 +143,7 @@ implements vscode.TextDocumentContentProvider, vscode.Disposable {
       watcher.dispose();
     }
     this.watchers.clear();
+    this.preloadedRevisions.clear();
     for (const subscription of this.subscriptions) {
       subscription.dispose();
     }

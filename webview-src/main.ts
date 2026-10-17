@@ -535,7 +535,7 @@ async function renderModeNow(mode: RenderMode): Promise<void> {
         console.warn('Visual mode failed, falling back to text mode:', visualError);
         visualFailed = true;
         renderWarnings.push(VISUAL_FALLBACK_WARNING);
-        state.setMode('text');
+        state.setMode('text', false);
         toolbar.updateMode('text');
         mode = 'text' as RenderMode;
         // continue to text rendering below
@@ -918,9 +918,23 @@ function collectVisualStyles(): string {
   if (!container) {
     return '';
   }
-  return [...container.querySelectorAll('style')]
+  const rawCss = [...container.querySelectorAll('style')]
     .map((style) => style.textContent ?? '')
     .join('\n');
+  return withoutExternalCssUrls(rawCss);
+}
+
+/** Keep exports self-contained; a font data URL must have a font MIME and base64 payload. */
+function withoutExternalCssUrls(css: string): string {
+  return css
+    .replace(/@import\b[^;]*(?:;|$)/gi, '')
+    .replace(/url\s*\(([^)]*)\)/gi, (whole, rawTarget: string) => {
+      const target = rawTarget.trim().replace(/^['"]|['"]$/g, '');
+      return /^#[a-z0-9_.:-]+$/i.test(target)
+        || /^data:(?:image\/(?:png|jpeg|gif|webp|svg\+xml)|font\/(?:ttf|otf|woff2?));base64,[a-z0-9+/]+={0,2}$/i.test(target)
+        ? whole
+        : 'none';
+    });
 }
 
 /**
@@ -932,8 +946,57 @@ function collectVisualBody(): string {
   if (!visualContainer.firstElementChild) {
     return '';
   }
-  return DOMPurify.sanitize(visualContainer.innerHTML, {
+  const clone = visualContainer.cloneNode(true) as HTMLElement;
+  for (const mark of clone.querySelectorAll('mark.showdocx-search-match')) {
+    const parent = mark.parentNode;
+    if (parent) {
+      while (mark.firstChild) {
+        parent.insertBefore(mark.firstChild, mark);
+      }
+      parent.removeChild(mark);
+    }
+  }
+  for (const element of clone.querySelectorAll('[style]')) {
+    element.setAttribute('style', withoutExternalCssUrls(element.getAttribute('style') ?? ''));
+  }
+  for (const element of clone.querySelectorAll('[src], [srcset], [poster], [background]')) {
+    element.removeAttribute('srcset');
+    for (const attribute of ['src', 'poster', 'background']) {
+      let target = element.getAttribute(attribute);
+      if (target && target.startsWith('data:application/octet-stream;base64,')) {
+        const payload = target.slice('data:application/octet-stream;base64,'.length);
+        if (payload.startsWith('iVBORw0KGgo')) {
+          target = `data:image/png;base64,${payload}`;
+          element.setAttribute(attribute, target);
+        } else if (payload.startsWith('/9j/')) {
+          target = `data:image/jpeg;base64,${payload}`;
+          element.setAttribute(attribute, target);
+        } else if (payload.startsWith('R0lGOD')) {
+          target = `data:image/gif;base64,${payload}`;
+          element.setAttribute(attribute, target);
+        } else if (payload.startsWith('UklGR')) {
+          target = `data:image/webp;base64,${payload}`;
+          element.setAttribute(attribute, target);
+        }
+      }
+      if (target && !/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,[a-z0-9+/]+={0,2}$/i.test(target)) {
+        element.removeAttribute(attribute);
+      }
+    }
+  }
+  for (const element of clone.querySelectorAll('[href], [xlink\\:href]')) {
+    const href = element.getAttribute('href') ?? element.getAttribute('xlink:href') ?? '';
+    // External hyperlinks are navigable, but SVG resource references stay local.
+    if (/^data:/i.test(href) || (element.localName !== 'a' && !href.startsWith('#'))) {
+      element.removeAttribute('href');
+      element.removeAttribute('xlink:href');
+    }
+  }
+  return DOMPurify.sanitize(clone.innerHTML, {
     USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
+    FORBID_TAGS: ['form', 'input', 'button', 'select', 'textarea', 'script', 'style', 'iframe', 'frame', 'object', 'embed'],
+    FORBID_ATTR: ['action', 'formaction', 'method'],
+    ALLOWED_URI_REGEXP: /^(?:#|https?:|mailto:|data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,)/i,
   });
 }
 
@@ -1024,10 +1087,9 @@ function toErrorDetail(error: unknown): string {
 
 function toRenderError(error: unknown): string {
   if (error instanceof Error && error.message) {
-    if (/zip|central directory|end of data|invalid/i.test(error.message)) {
+    if (/(?:zip|central directory|end of data|invalid (?:file|signature|format|archive|header))/i.test(error.message)) {
       return 'This file appears to be corrupted or is not a valid DOCX document.';
     }
   }
   return 'ShowDocx could not render this document.';
 }
-

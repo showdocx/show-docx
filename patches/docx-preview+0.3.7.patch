@@ -1,8 +1,160 @@
 diff --git a/node_modules/docx-preview/dist/docx-preview.js b/node_modules/docx-preview/dist/docx-preview.js
-index d8e0043..9f273df 100644
+index d8e0043..b78c8e0 100644
 --- a/node_modules/docx-preview/dist/docx-preview.js
 +++ b/node_modules/docx-preview/dist/docx-preview.js
-@@ -1371,7 +1371,12 @@
+@@ -43,10 +43,16 @@
+     }
+ 
+     function escapeClassName(className) {
+-        return className?.replace(/[ .]+/g, '-').replace(/[&]+/g, 'and').toLowerCase();
++        return className?.replace(/[\s.]+/g, '-').replace(/[&]+/g, 'and').toLowerCase();
+     }
+     function encloseFontFamily(fontFamily) {
+-        return /^[^"'].*\s.*[^"']$/.test(fontFamily) ? `'${fontFamily}'` : fontFamily;
++        return '"' + String(fontFamily).replace(/[\u0000-\u001f\u007f"\\<>]/g, c => "\\" + c.charCodeAt(0).toString(16) + " ") + '"';
++    }
++    function parseDecimal(value, min = 0, max = 2147483647) {
++        if (value == null || !/^-?\d+$/.test(String(value)))
++            return null;
++        const number = Number(value);
++        return Number.isSafeInteger(number) && number >= min && number <= max ? number : null;
+     }
+     function splitPath(path) {
+         let si = path.lastIndexOf('/') + 1;
+@@ -118,10 +124,14 @@
+         Point: { mul: 1, unit: "pt" },
+         Percent: { mul: 0.02, unit: "%" }};
+     function convertLength(val, usage = LengthUsage.Dxa) {
+-        if (val == null || /.+(p[xt]|[%])$/.test(val)) {
++        if (val == null || /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:p[xt]|%)$/.test(val)) {
+             return val;
+         }
+-        var num = parseInt(val) * usage.mul;
++        if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(val))
++            return null;
++        var num = Number(val) * usage.mul;
++        if (!Number.isFinite(num))
++            return null;
+         if (usage.min && usage.max)
+             num = clamp(num, usage.min, usage.max);
+         return `${num.toFixed(2)}${usage.unit}`;
+@@ -539,18 +549,18 @@
+         }));
+     }
+     function parseNumbering$1(elem, xml) {
+-        var result = {};
++        var result = { level: 0 };
+         for (let e of xml.elements(elem)) {
+             switch (e.localName) {
+                 case "numId":
+-                    result.id = xml.attr(e, "val");
++                    result.id = parseDecimal(xml.attr(e, "val"));
+                     break;
+                 case "ilvl":
+-                    result.level = xml.intAttr(e, "val");
+-                    break;
+-            }
+-        }
+-        return result;
++                    result.level = parseDecimal(xml.attr(e, "val"), 0, 8);
++                    break;
++            }
++        }
++        return result.id != null && result.level != null ? result : null;
+     }
+ 
+     function parseNumberingPart(elem, xml) {
+@@ -576,13 +586,13 @@
+     }
+     function parseNumbering(elem, xml) {
+         let result = {
+-            id: xml.attr(elem, 'numId'),
++            id: parseDecimal(xml.attr(elem, 'numId')),
+             overrides: []
+         };
+         for (let e of xml.elements(elem)) {
+             switch (e.localName) {
+                 case "abstractNumId":
+-                    result.abstractId = xml.attr(e, "val");
++                    result.abstractId = parseDecimal(xml.attr(e, "val"));
+                     break;
+                 case "lvlOverride":
+                     result.overrides.push(parseNumberingLevelOverrride(e, xml));
+@@ -593,7 +603,7 @@
+     }
+     function parseAbstractNumbering(elem, xml) {
+         let result = {
+-            id: xml.attr(elem, 'abstractNumId'),
++            id: parseDecimal(xml.attr(elem, 'abstractNumId')),
+             levels: []
+         };
+         for (let e of xml.elements(elem)) {
+@@ -619,15 +629,15 @@
+     }
+     function parseNumberingLevel(elem, xml) {
+         let result = {
+-            level: xml.intAttr(elem, 'ilvl')
++            level: parseDecimal(xml.attr(elem, 'ilvl'), 0, 8)
+         };
+         for (let e of xml.elements(elem)) {
+             switch (e.localName) {
+                 case "start":
+-                    result.start = xml.attr(e, "val");
++                    result.start = parseDecimal(xml.attr(e, "val"), -2147483648);
+                     break;
+                 case "lvlRestart":
+-                    result.restart = xml.intAttr(e, "val");
++                    result.restart = parseDecimal(xml.attr(e, "val"), 0, 9);
+                     break;
+                 case "numFmt":
+                     result.format = xml.attr(e, "val");
+@@ -639,7 +649,7 @@
+                     result.justification = xml.attr(e, "val");
+                     break;
+                 case "lvlPicBulletId":
+-                    result.bulletPictureId = xml.attr(e, "val");
++                    result.bulletPictureId = parseDecimal(xml.attr(e, "val"));
+                     break;
+                 case "pStyle":
+                     result.paragraphStyle = xml.attr(e, "val");
+@@ -656,12 +666,12 @@
+     }
+     function parseNumberingLevelOverrride(elem, xml) {
+         let result = {
+-            level: xml.intAttr(elem, 'ilvl')
++            level: parseDecimal(xml.attr(elem, 'ilvl'), 0, 8)
+         };
+         for (let e of xml.elements(elem)) {
+             switch (e.localName) {
+                 case "startOverride":
+-                    result.start = xml.intAttr(e, "val");
++                    result.start = parseDecimal(xml.attr(e, "val"), -2147483648);
+                     break;
+                 case "lvl":
+                     result.numberingLevel = parseNumberingLevel(e, xml);
+@@ -675,7 +685,7 @@
+         var shape = pict && xml.element(pict, "shape");
+         var imagedata = shape && xml.element(shape, "imagedata");
+         return imagedata ? {
+-            id: xml.attr(elem, "numPicBulletId"),
++            id: parseDecimal(xml.attr(elem, "numPicBulletId")),
+             referenceId: xml.attr(imagedata, "id"),
+             style: xml.attr(shape, "style")
+         } : null;
+@@ -1193,7 +1203,11 @@
+         }
+         async loadFont(id, key) {
+             const x = await this.loadResource(this.fontTablePart, id, "uint8array");
+-            return x ? this.blobToURL(new Blob([deobfuscate(x, key)])) : x;
++            if (!x)
++                return x;
++            const data = deobfuscate(x, key);
++            const type = data[0] === 0x4f && data[1] === 0x54 && data[2] === 0x54 && data[3] === 0x4f ? "font/otf" : "font/ttf";
++            return this.blobToURL(new Blob([data], { type }));
+         }
+         async loadAltChunk(id, part) {
+             return await this.loadResource(part ?? this.documentPart, id, "string");
+@@ -1371,7 +1385,12 @@
          borderColor: "black",
          highlight: "transparent"
      };
@@ -16,7 +168,83 @@ index d8e0043..9f273df 100644
      const mmlTagMap = {
          "oMath": DomType.MmlMath,
          "oMathPara": DomType.MmlMathParagraph,
-@@ -1752,12 +1757,14 @@
+@@ -1661,7 +1680,7 @@
+         }
+         parseNumberingFile(node) {
+             var result = [];
+-            var mapping = {};
++            var mapping = Object.create(null);
+             var bullets = [];
+             for (const n of globalXmlParser.elements(node)) {
+                 switch (n.localName) {
+@@ -1673,28 +1692,31 @@
+                         bullets.push(this.parseNumberingPicBullet(n));
+                         break;
+                     case "num":
+-                        var numId = globalXmlParser.attr(n, "numId");
+-                        var abstractNumId = globalXmlParser.elementAttr(n, "abstractNumId", "val");
+-                        mapping[abstractNumId] = numId;
++                        var numId = parseDecimal(globalXmlParser.attr(n, "numId"));
++                        var abstractNumId = parseDecimal(globalXmlParser.elementAttr(n, "abstractNumId", "val"));
++                        if (numId != null && abstractNumId != null)
++                            mapping[abstractNumId] = numId;
+                         break;
+                 }
+             }
+             result.forEach(x => x.id = mapping[x.id]);
+-            return result;
++            return result.filter(x => x.id != null && x.level != null);
+         }
+         parseNumberingPicBullet(elem) {
+             var pict = globalXmlParser.element(elem, "pict");
+             var shape = pict && globalXmlParser.element(pict, "shape");
+             var imagedata = shape && globalXmlParser.element(shape, "imagedata");
+             return imagedata ? {
+-                id: globalXmlParser.intAttr(elem, "numPicBulletId"),
++                id: parseDecimal(globalXmlParser.attr(elem, "numPicBulletId")),
+                 src: globalXmlParser.attr(imagedata, "id"),
+                 style: globalXmlParser.attr(shape, "style")
+             } : null;
+         }
+         parseAbstractNumbering(node, bullets) {
+             var result = [];
+-            var id = globalXmlParser.attr(node, "abstractNumId");
++            var id = parseDecimal(globalXmlParser.attr(node, "abstractNumId"));
++            if (id == null)
++                return result;
+             for (const n of globalXmlParser.elements(node)) {
+                 switch (n.localName) {
+                     case "lvl":
+@@ -1707,7 +1729,7 @@
+         parseNumberingLevel(id, node, bullets) {
+             var result = {
+                 id: id,
+-                level: globalXmlParser.intAttr(node, "ilvl"),
++                level: parseDecimal(globalXmlParser.attr(node, "ilvl"), 0, 8),
+                 start: 1,
+                 pStyleName: undefined,
+                 pStyle: {},
+@@ -1717,7 +1739,7 @@
+             for (const n of globalXmlParser.elements(node)) {
+                 switch (n.localName) {
+                     case "start":
+-                        result.start = globalXmlParser.intAttr(n, "val");
++                        result.start = parseDecimal(globalXmlParser.attr(n, "val"), -2147483648) ?? 1;
+                         break;
+                     case "pPr":
+                         this.parseDefaultProperties(n, result.pStyle);
+@@ -1726,8 +1748,8 @@
+                         this.parseDefaultProperties(n, result.rStyle);
+                         break;
+                     case "lvlPicBulletId":
+-                        var bulletId = globalXmlParser.intAttr(n, "val");
+-                        result.bullet = bullets.find(x => x?.id == bulletId);
++                        var bulletId = parseDecimal(globalXmlParser.attr(n, "val"));
++                        result.bullet = bulletId == null ? null : bullets.find(x => x?.id === bulletId);
+                         break;
+                     case "lvlText":
+                         result.levelText = globalXmlParser.attr(n, "val");
+@@ -1752,12 +1774,14 @@
          parseInserted(node, parentParser) {
              return {
                  type: DomType.Inserted,
@@ -31,7 +259,7 @@ index d8e0043..9f273df 100644
                  children: parentParser(node)?.children ?? []
              };
          }
-@@ -1870,6 +1877,8 @@
+@@ -1870,6 +1894,8 @@
              var result = { type: DomType.Run, parent: parent, children: [] };
              for (let c of globalXmlParser.elements(node)) {
                  c = this.checkAlternateContent(c);
@@ -40,7 +268,7 @@ index d8e0043..9f273df 100644
                  switch (c.localName) {
                      case "t":
                          result.children.push({
-@@ -2122,13 +2131,110 @@
+@@ -2122,12 +2148,109 @@
          parseGraphic(elem) {
              var graphicData = globalXmlParser.element(elem, "graphicData");
              for (let n of globalXmlParser.elements(graphicData)) {
@@ -50,8 +278,8 @@ index d8e0043..9f273df 100644
 -                }
 +                var result = this.parseGraphicElement(n);
 +                if (result) return result;
-+            }
-+            return null;
+             }
+             return null;
 +        }
 +        groupTransform(group) {
 +            var grpSpPr = globalXmlParser.element(group, "grpSpPr");
@@ -126,9 +354,9 @@ index d8e0043..9f273df 100644
 +                        children: children,
 +                        cssStyle: groupStyle
 +                    };
-             }
-             return null;
-         }
++            }
++            return null;
++        }
 +        parseWsp(elem) {
 +            var txbx = globalXmlParser.element(elem, "txbx");
 +            var txbxContent = txbx && globalXmlParser.element(txbx, "txbxContent");
@@ -151,11 +379,105 @@ index d8e0043..9f273df 100644
 +                result.children = this.parseBodyElements(txbxContent);
 +            }
 +            return result;
-+        }
+         }
          parsePicture(elem) {
              var result = { type: DomType.Image, src: "", cssStyle: {} };
-             var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3134,6 +3240,12 @@
+@@ -2526,7 +2649,7 @@
+             var ascii = globalXmlParser.attr(node, "ascii");
+             var asciiTheme = values.themeValue(node, "asciiTheme");
+             var eastAsia = globalXmlParser.attr(node, "eastAsia");
+-            var fonts = [ascii, asciiTheme, eastAsia].filter(x => x).map(x => encloseFontFamily(x));
++            var fonts = [ascii && encloseFontFamily(ascii), asciiTheme, eastAsia && encloseFontFamily(eastAsia)].filter(x => x);
+             if (fonts.length > 0)
+                 style["font-family"] = [...new Set(fonts)].join(', ');
+         }
+@@ -2630,16 +2753,16 @@
+                 else if (knownColors.includes(v)) {
+                     return v;
+                 }
+-                return `#${v}`;
++                return /^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v) ? "#" + v : defValue;
+             }
+             var themeColor = globalXmlParser.attr(node, "themeColor");
+-            return themeColor ? `var(--docx-${themeColor}-color)` : defValue;
++            return themeColor && /^[a-z][a-z0-9]*$/i.test(themeColor) ? "var(--docx-" + themeColor + "-color)" : defValue;
+         }
+     }
+     class values {
+         static themeValue(c, attr) {
+             var val = globalXmlParser.attr(c, attr);
+-            return val ? `var(--docx-${val}-font)` : null;
++            return val && /^[a-z][a-z0-9]*$/i.test(val) ? "var(--docx-" + val + "-font)" : null;
+         }
+         static valueOfSize(c, attr) {
+             var type = LengthUsage.Dxa;
+@@ -2802,7 +2925,7 @@
+             return;
+         let width = 1;
+         if (tab.style == "right" || tab.style == "center") {
+-            const tabStops = Array.from(p.querySelectorAll(`.${elem.className}`));
++            const tabStops = Array.from(p.querySelectorAll(`.${CSS.escape(elem.className)}`));
+             const nextIdx = tabStops.indexOf(elem) + 1;
+             const range = document.createRange();
+             range.setStart(elem, 1);
+@@ -2866,8 +2989,8 @@
+         async render(document, bodyContainer, styleContainer = null, options) {
+             this.document = document;
+             this.options = options;
+-            this.className = options.className;
+-            this.rootSelector = options.inWrapper ? `.${this.className}-wrapper` : ':root';
++            this.className = escapeClassName(options.className);
++            this.rootSelector = options.inWrapper ? `.${CSS.escape(this.className + '-wrapper')}` : ':root';
+             this.styleMap = null;
+             this.tasks = [];
+             if (this.options.renderComments && globalThis.Highlight) {
+@@ -2919,22 +3042,26 @@
+         }
+         renderTheme(themePart, styleContainer) {
+             const variables = {};
++            // Literal typefaces are quoted; only validated theme references stay CSS variables.
++            const themeFont = (value) => typeof value === "string" && value.trim() ? encloseFontFamily(value) : null;
+             const fontScheme = themePart.theme?.fontScheme;
+             if (fontScheme) {
+-                if (fontScheme.majorFont) {
+-                    variables['--docx-majorHAnsi-font'] = fontScheme.majorFont.latinTypeface;
+-                }
+-                if (fontScheme.minorFont) {
+-                    variables['--docx-minorHAnsi-font'] = fontScheme.minorFont.latinTypeface;
+-                }
++                const major = themeFont(fontScheme.majorFont?.latinTypeface);
++                const minor = themeFont(fontScheme.minorFont?.latinTypeface);
++                if (major)
++                    variables["--docx-majorHAnsi-font"] = major;
++                if (minor)
++                    variables["--docx-minorHAnsi-font"] = minor;
+             }
+             const colorScheme = themePart.theme?.colorScheme;
+             if (colorScheme) {
+                 for (let [k, v] of Object.entries(colorScheme.colors)) {
+-                    variables[`--docx-${k}-color`] = `#${v}`;
+-                }
+-            }
+-            const cssText = this.styleToString(`.${this.className}`, variables);
++                    // DrawingML srgbClr/lastClr are exactly six hexadecimal digits.
++                    if (/^[a-z][a-z0-9]*$/i.test(k) && typeof v === "string" && /^[0-9a-f]{6}$/i.test(v))
++                        variables["--docx-" + k + "-color"] = "#" + v;
++                }
++            }
++            const cssText = this.styleToString("." + CSS.escape(this.className), variables);
+             styleContainer.appendChild(this.createStyleElement(cssText));
+         }
+         renderFontTable(fontsPart, styleContainer) {
+@@ -2943,7 +3070,7 @@
+                     this.tasks.push(this.document.loadFont(ref.id, ref.key).then(fontData => {
+                         const cssValues = {
+                             'font-family': encloseFontFamily(f.name),
+-                            'src': `url(${fontData})`
++                            'src': `url(${encloseFontFamily(fontData)})`
+                         };
+                         if (ref.type == "bold" || ref.type == "boldItalic") {
+                             cssValues['font-weight'] = 'bold';
+@@ -3134,6 +3261,12 @@
                  || prev.pageSize?.width != next.pageSize?.width
                  || prev.pageSize?.height != next.pageSize?.height;
          }
@@ -168,7 +490,7 @@ index d8e0043..9f273df 100644
          splitBySection(elements, defaultProps) {
              var current = { sectProps: null, elements: [], pageBreak: false };
              var result = [current];
-@@ -3159,6 +3271,15 @@
+@@ -3159,6 +3292,15 @@
                              return rBreakIndex != -1;
                          });
                      }
@@ -184,7 +506,7 @@ index d8e0043..9f273df 100644
                      if (sectProps || pBreakIndex != -1) {
                          current.sectProps = sectProps;
                          current.pageBreak = pBreakIndex != -1;
-@@ -3170,8 +3291,9 @@
+@@ -3170,8 +3312,9 @@
                          let splitRun = rBreakIndex < breakRun.children.length - 1;
                          if (pBreakIndex < p.children.length - 1 || splitRun) {
                              var children = elem.children;
@@ -195,7 +517,7 @@ index d8e0043..9f273df 100644
                              current.elements.push(newParagraph);
                              if (splitRun) {
                                  let runChildren = breakRun.children;
-@@ -3194,13 +3316,20 @@
+@@ -3194,13 +3337,20 @@
              }
              return result;
          }
@@ -218,10 +540,72 @@ index d8e0043..9f273df 100644
                      result.push(current = []);
                  prev = s.sectProps;
              }
-@@ -3459,6 +3588,14 @@ section.${c}>footer { z-index: 1; }
-             if (numbering) {
-                 result.classList.add(this.numberingClass(numbering.id, numbering.level));
+@@ -3210,7 +3360,7 @@
+             return this.createElement("div", { className: `${this.className}-wrapper` }, children);
+         }
+         renderDefaultStyle() {
+-            var c = this.className;
++            var c = CSS.escape(this.className);
+             var wrapperStyle = `
+ .${c}-wrapper { background: gray; padding: 30px; padding-bottom: 0px; display: flex; flex-flow: column; align-items: center; } 
+ .${c}-wrapper>section.${c} { background: white; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); margin-bottom: 30px; }`;
+@@ -3243,25 +3393,28 @@
+             var styleText = "";
+             var resetCounters = [];
+             for (var num of numberings) {
+-                var selector = `p.${this.numberingClass(num.id, num.level)}`;
++                const className = this.numberingClass(num.id, num.level);
++                if (className == null)
++                    continue;
++                var selector = `p.${CSS.escape(className)}`;
+                 var listStyleType = "none";
+                 if (num.bullet) {
+-                    let valiable = `--${this.className}-${num.bullet.src}`.toLowerCase();
++                    let valiable = `--docx-bullet-${parseDecimal(num.id)}-${parseDecimal(num.level, 0, 8)}`;
+                     styleText += this.styleToString(`${selector}:before`, {
+                         "content": "' '",
+                         "display": "inline-block",
+                         "background": `var(${valiable})`
+                     }, num.bullet.style);
+                     this.tasks.push(this.document.loadNumberingImage(num.bullet.src).then(data => {
+-                        var text = `${this.rootSelector} { ${valiable}: url(${data}) }`;
++                        var text = this.styleToString(this.rootSelector, { [valiable]: `url(${encloseFontFamily(data)})` });
+                         styleContainer.appendChild(this.createStyleElement(text));
+                     }));
+                 }
+                 else if (num.levelText) {
+                     let counter = this.numberingCounter(num.id, num.level);
+-                    const counterReset = counter + " " + (num.start - 1);
++                    const counterReset = counter + " " + ((parseDecimal(num.start, -2147483648) ?? 1) - 1);
+                     if (num.level > 0) {
+-                        styleText += this.styleToString(`p.${this.numberingClass(num.id, num.level - 1)}`, {
++                        styleText += this.styleToString(`p.${CSS.escape(this.numberingClass(num.id, num.level - 1))}`, {
+                             "counter-set": counterReset
+                         });
+                     }
+@@ -3303,11 +3456,11 @@
+                         console.warn(`Can't find linked style ${style.linked}`);
+                 }
+                 for (const subStyle of subStyles) {
+-                    var selector = `${style.target ?? ''}.${style.cssName}`;
++                    var selector = `${style.target ?? ''}.${CSS.escape(style.cssName)}`;
+                     if (style.target != subStyle.target)
+                         selector += ` ${subStyle.target}`;
+                     if (defautStyles[style.target] == style)
+-                        selector = `.${this.className} ${style.target}, ` + selector;
++                        selector = `.${CSS.escape(this.className)} ${style.target}, ` + selector;
+                     styleText += this.styleToString(selector, subStyle.values);
+                 }
              }
+@@ -3457,7 +3610,17 @@
+             this.renderCommonProperties(result.style, elem);
+             const numbering = elem.numbering ?? style?.paragraphProps?.numbering;
+             if (numbering) {
+-                result.classList.add(this.numberingClass(numbering.id, numbering.level));
++                const className = this.numberingClass(numbering.id, numbering.level);
++                if (className != null)
++                    result.classList.add(className);
++            }
 +            if (elem.continuation) {
 +                result.classList.add(`${this.className}-continuation`);
 +                result.style.textIndent = "0";
@@ -229,11 +613,10 @@ index d8e0043..9f273df 100644
 +            }
 +            if (elem.continued) {
 +                result.style.marginBottom = "0";
-+            }
+             }
              return result;
          }
-         renderRunProperties(style, props) {
-@@ -3517,6 +3654,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3517,6 +3680,7 @@
                  return null;
              const frg = new DocumentFragment();
              const commentRefEl = this.createElement("span", { className: `${this.className}-comment-ref` }, ['💬']);
@@ -241,7 +624,7 @@ index d8e0043..9f273df 100644
              const commentsContainerEl = this.createElement("div", { className: `${this.className}-comment-popover` });
              this.renderCommentContent(comment, commentsContainerEl);
              frg.appendChild(this.createComment(`comment #${comment.id} by ${comment.author} on ${comment.date}`));
-@@ -3528,6 +3666,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3528,6 +3692,7 @@
              if (!this.options.renderAltChunks)
                  return null;
              var result = this.createElement("iframe");
@@ -249,19 +632,19 @@ index d8e0043..9f273df 100644
              this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
                  result.srcdoc = x;
              }));
-@@ -3579,12 +3718,17 @@ section.${c}>footer { z-index: 1; }
+@@ -3579,18 +3744,25 @@
          }
          renderInserted(elem) {
              if (this.options.renderChanges)
 -                return this.renderContainer(elem, "ins");
 +                return this.markRevision(this.renderContainer(elem, "ins"), elem);
              return this.renderElements(elem.children);
-         }
++        }
 +        markRevision(element, elem) {
 +            if (elem.id != null)
 +                element.setAttribute("data-revision-id", elem.id);
 +            return element;
-+        }
+         }
          renderDeleted(elem) {
              if (this.options.renderChanges)
 -                return this.renderContainer(elem, "del");
@@ -269,7 +652,16 @@ index d8e0043..9f273df 100644
              return null;
          }
          renderSymbol(elem) {
-@@ -3703,7 +3847,9 @@ section.${c}>footer { z-index: 1; }
+             var span = this.createElement("span");
+             span.style.fontFamily = elem.font;
+-            span.innerHTML = `&#x${elem.char};`;
++            const parsed = /^[0-9a-f]{1,6}$/i.test(elem.char) ? Number.parseInt(elem.char, 16) : 0xfffd;
++            const codePoint = parsed <= 0x10ffff && !(parsed >= 0xd800 && parsed <= 0xdfff) ? parsed : 0xfffd;
++            span.textContent = String.fromCodePoint(codePoint);
+             return span;
+         }
+         renderFootnoteReference(elem) {
+@@ -3703,7 +3875,9 @@
              return result;
          }
          renderVmlPicture(elem) {
@@ -280,11 +672,255 @@ index d8e0043..9f273df 100644
          }
          renderVmlElement(elem) {
              var container = this.createSvgElement("svg");
+@@ -3841,35 +4015,53 @@
+             return styleName && this.styleMap?.[styleName];
+         }
+         numberingClass(id, lvl) {
+-            return `${this.className}-num-${id}-${lvl}`;
++            const safeId = parseDecimal(id);
++            const safeLevel = parseDecimal(lvl, 0, 8);
++            return safeId != null && safeLevel != null ? `${this.className}-num-${safeId}-${safeLevel}` : null;
+         }
+         tabStopClass() {
+             return `${this.className}-tab-stop`;
+         }
+         styleToString(selectors, values, cssText = null) {
+-            let result = `${selectors} {\r\n`;
++            // Font-face descriptors (notably src) are not ordinary element properties.
++            const sheet = selectors === "@font-face" ? new CSSStyleSheet() : null;
++            if (sheet)
++                sheet.insertRule("@font-face {}");
++            const declarations = sheet ? sheet.cssRules[0].style : this.htmlDocument.createElement("span").style;
+             for (const key in values) {
+-                if (key.startsWith('$'))
+-                    continue;
+-                result += `  ${key}: ${values[key]};\r\n`;
+-            }
+-            if (cssText)
+-                result += cssText;
+-            return result + "}\r\n";
++                if (!key.startsWith('$') && values[key] != null)
++                    declarations.setProperty(key, String(values[key]));
++            }
++            if (cssText) {
++                // VML picture bullets carry a declaration list, not a stylesheet.
++                const extra = this.htmlDocument.createElement("span").style;
++                extra.cssText = cssText;
++                for (const key of extra)
++                    declarations.setProperty(key, extra.getPropertyValue(key), extra.getPropertyPriority(key));
++            }
++            const serialized = declarations.cssText.replace(/[<>]/g, c => "\\" + c.charCodeAt(0).toString(16) + " ");
++            return `${selectors} {\r\n  ${serialized}\r\n}\r\n`;
+         }
+         numberingCounter(id, lvl) {
+-            return `${this.className}-num-${id}-${lvl}`;
++            const className = this.numberingClass(id, lvl);
++            return className == null ? null : CSS.escape(className);
+         }
+         levelTextToContent(text, suff, id, numformat) {
+-            const suffMap = {
+-                "tab": "\\9",
+-                "space": "\\a0",
+-            };
+-            var result = text.replace(/%\d*/g, s => {
+-                let lvl = parseInt(s.substring(1), 10) - 1;
+-                return `"counter(${this.numberingCounter(id, lvl)}, ${numformat})"`;
+-            });
+-            return `"${result}${suffMap[suff] ?? ""}"`;
++            const suffMap = { tab: "\\9", space: "\\a0" };
++            const safeNumformat = /^[a-z][a-z0-9-]*$/i.test(numformat) ? numformat : "decimal";
++            const escapeCssText = (value) => value.replace(/[\u0000-\u001f\u007f\\"<>]/g, (character) => "\\" + character.charCodeAt(0).toString(16) + " ");
++            let result = "";
++            let cursor = 0;
++            for (const match of text.matchAll(/%([1-9]\d*)/g)) {
++                const index = match.index ?? 0;
++                result += escapeCssText(text.slice(cursor, index));
++                const level = Number.parseInt(match[1] ?? "", 10) - 1;
++                const counter = this.numberingCounter(id, level);
++                result += counter == null ? escapeCssText(match[0]) : "\"counter(" + counter + ", " + safeNumformat + ")\"";
++                cursor = index + match[0].length;
++            }
++            result += escapeCssText(text.slice(cursor));
++            return '"' + result + (suffMap[suff] ?? "") + '"';
+         }
+         numFormatToCssValue(format) {
+             var mapping = {
+@@ -3908,7 +4100,8 @@
+                 taiwaneseCountingThousand: "cjk-ideographic",
+                 taiwaneseDigital: "cjk-decimal",
+             };
+-            return mapping[format] ?? format;
++            return Object.prototype.hasOwnProperty.call(mapping, format) ? mapping[format]
++                            : typeof format === "string" && /^[a-z][a-z0-9-]*$/i.test(format) ? format : "decimal";
+         }
+         refreshTabStops() {
+             if (!this.options.experimental)
+@@ -3933,7 +4126,7 @@
+             return this.createElementNS(ns.svg, tagName, props, children);
+         }
+         createStyleElement(cssText) {
+-            return this.createElement("style", { innerHTML: cssText });
++            return this.createElement("style", { textContent: cssText });
+         }
+         createComment(text) {
+             return this.htmlDocument.createComment(text);
 diff --git a/node_modules/docx-preview/dist/docx-preview.mjs b/node_modules/docx-preview/dist/docx-preview.mjs
-index 2691670..a209337 100644
+index 2691670..e4a3c2f 100644
 --- a/node_modules/docx-preview/dist/docx-preview.mjs
 +++ b/node_modules/docx-preview/dist/docx-preview.mjs
-@@ -1367,7 +1367,12 @@ var autos = {
+@@ -39,10 +39,16 @@
+ }
+ 
+ function escapeClassName(className) {
+-    return className?.replace(/[ .]+/g, '-').replace(/[&]+/g, 'and').toLowerCase();
++    return className?.replace(/[\s.]+/g, '-').replace(/[&]+/g, 'and').toLowerCase();
+ }
+ function encloseFontFamily(fontFamily) {
+-    return /^[^"'].*\s.*[^"']$/.test(fontFamily) ? `'${fontFamily}'` : fontFamily;
++    return '"' + String(fontFamily).replace(/[\u0000-\u001f\u007f"\\<>]/g, c => "\\" + c.charCodeAt(0).toString(16) + " ") + '"';
++}
++function parseDecimal(value, min = 0, max = 2147483647) {
++    if (value == null || !/^-?\d+$/.test(String(value)))
++        return null;
++    const number = Number(value);
++    return Number.isSafeInteger(number) && number >= min && number <= max ? number : null;
+ }
+ function splitPath(path) {
+     let si = path.lastIndexOf('/') + 1;
+@@ -114,10 +120,14 @@
+     Point: { mul: 1, unit: "pt" },
+     Percent: { mul: 0.02, unit: "%" }};
+ function convertLength(val, usage = LengthUsage.Dxa) {
+-    if (val == null || /.+(p[xt]|[%])$/.test(val)) {
++    if (val == null || /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:p[xt]|%)$/.test(val)) {
+         return val;
+     }
+-    var num = parseInt(val) * usage.mul;
++    if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(val))
++        return null;
++    var num = Number(val) * usage.mul;
++    if (!Number.isFinite(num))
++        return null;
+     if (usage.min && usage.max)
+         num = clamp(num, usage.min, usage.max);
+     return `${num.toFixed(2)}${usage.unit}`;
+@@ -535,18 +545,18 @@
+     }));
+ }
+ function parseNumbering$1(elem, xml) {
+-    var result = {};
++    var result = { level: 0 };
+     for (let e of xml.elements(elem)) {
+         switch (e.localName) {
+             case "numId":
+-                result.id = xml.attr(e, "val");
++                result.id = parseDecimal(xml.attr(e, "val"));
+                 break;
+             case "ilvl":
+-                result.level = xml.intAttr(e, "val");
+-                break;
+-        }
+-    }
+-    return result;
++                result.level = parseDecimal(xml.attr(e, "val"), 0, 8);
++                break;
++        }
++    }
++    return result.id != null && result.level != null ? result : null;
+ }
+ 
+ function parseNumberingPart(elem, xml) {
+@@ -572,13 +582,13 @@
+ }
+ function parseNumbering(elem, xml) {
+     let result = {
+-        id: xml.attr(elem, 'numId'),
++        id: parseDecimal(xml.attr(elem, 'numId')),
+         overrides: []
+     };
+     for (let e of xml.elements(elem)) {
+         switch (e.localName) {
+             case "abstractNumId":
+-                result.abstractId = xml.attr(e, "val");
++                result.abstractId = parseDecimal(xml.attr(e, "val"));
+                 break;
+             case "lvlOverride":
+                 result.overrides.push(parseNumberingLevelOverrride(e, xml));
+@@ -589,7 +599,7 @@
+ }
+ function parseAbstractNumbering(elem, xml) {
+     let result = {
+-        id: xml.attr(elem, 'abstractNumId'),
++        id: parseDecimal(xml.attr(elem, 'abstractNumId')),
+         levels: []
+     };
+     for (let e of xml.elements(elem)) {
+@@ -615,15 +625,15 @@
+ }
+ function parseNumberingLevel(elem, xml) {
+     let result = {
+-        level: xml.intAttr(elem, 'ilvl')
++        level: parseDecimal(xml.attr(elem, 'ilvl'), 0, 8)
+     };
+     for (let e of xml.elements(elem)) {
+         switch (e.localName) {
+             case "start":
+-                result.start = xml.attr(e, "val");
++                result.start = parseDecimal(xml.attr(e, "val"), -2147483648);
+                 break;
+             case "lvlRestart":
+-                result.restart = xml.intAttr(e, "val");
++                result.restart = parseDecimal(xml.attr(e, "val"), 0, 9);
+                 break;
+             case "numFmt":
+                 result.format = xml.attr(e, "val");
+@@ -635,7 +645,7 @@
+                 result.justification = xml.attr(e, "val");
+                 break;
+             case "lvlPicBulletId":
+-                result.bulletPictureId = xml.attr(e, "val");
++                result.bulletPictureId = parseDecimal(xml.attr(e, "val"));
+                 break;
+             case "pStyle":
+                 result.paragraphStyle = xml.attr(e, "val");
+@@ -652,12 +662,12 @@
+ }
+ function parseNumberingLevelOverrride(elem, xml) {
+     let result = {
+-        level: xml.intAttr(elem, 'ilvl')
++        level: parseDecimal(xml.attr(elem, 'ilvl'), 0, 8)
+     };
+     for (let e of xml.elements(elem)) {
+         switch (e.localName) {
+             case "startOverride":
+-                result.start = xml.intAttr(e, "val");
++                result.start = parseDecimal(xml.attr(e, "val"), -2147483648);
+                 break;
+             case "lvl":
+                 result.numberingLevel = parseNumberingLevel(e, xml);
+@@ -671,7 +681,7 @@
+     var shape = pict && xml.element(pict, "shape");
+     var imagedata = shape && xml.element(shape, "imagedata");
+     return imagedata ? {
+-        id: xml.attr(elem, "numPicBulletId"),
++        id: parseDecimal(xml.attr(elem, "numPicBulletId")),
+         referenceId: xml.attr(imagedata, "id"),
+         style: xml.attr(shape, "style")
+     } : null;
+@@ -1189,7 +1199,11 @@
+     }
+     async loadFont(id, key) {
+         const x = await this.loadResource(this.fontTablePart, id, "uint8array");
+-        return x ? this.blobToURL(new Blob([deobfuscate(x, key)])) : x;
++        if (!x)
++            return x;
++        const data = deobfuscate(x, key);
++        const type = data[0] === 0x4f && data[1] === 0x54 && data[2] === 0x54 && data[3] === 0x4f ? "font/otf" : "font/ttf";
++        return this.blobToURL(new Blob([data], { type }));
+     }
+     async loadAltChunk(id, part) {
+         return await this.loadResource(part ?? this.documentPart, id, "string");
+@@ -1367,7 +1381,12 @@
      borderColor: "black",
      highlight: "transparent"
  };
@@ -298,7 +934,83 @@ index 2691670..a209337 100644
  const mmlTagMap = {
      "oMath": DomType.MmlMath,
      "oMathPara": DomType.MmlMathParagraph,
-@@ -1748,12 +1753,14 @@ class DocumentParser {
+@@ -1657,7 +1676,7 @@
+     }
+     parseNumberingFile(node) {
+         var result = [];
+-        var mapping = {};
++        var mapping = Object.create(null);
+         var bullets = [];
+         for (const n of globalXmlParser.elements(node)) {
+             switch (n.localName) {
+@@ -1669,28 +1688,31 @@
+                     bullets.push(this.parseNumberingPicBullet(n));
+                     break;
+                 case "num":
+-                    var numId = globalXmlParser.attr(n, "numId");
+-                    var abstractNumId = globalXmlParser.elementAttr(n, "abstractNumId", "val");
+-                    mapping[abstractNumId] = numId;
++                    var numId = parseDecimal(globalXmlParser.attr(n, "numId"));
++                    var abstractNumId = parseDecimal(globalXmlParser.elementAttr(n, "abstractNumId", "val"));
++                    if (numId != null && abstractNumId != null)
++                        mapping[abstractNumId] = numId;
+                     break;
+             }
+         }
+         result.forEach(x => x.id = mapping[x.id]);
+-        return result;
++        return result.filter(x => x.id != null && x.level != null);
+     }
+     parseNumberingPicBullet(elem) {
+         var pict = globalXmlParser.element(elem, "pict");
+         var shape = pict && globalXmlParser.element(pict, "shape");
+         var imagedata = shape && globalXmlParser.element(shape, "imagedata");
+         return imagedata ? {
+-            id: globalXmlParser.intAttr(elem, "numPicBulletId"),
++            id: parseDecimal(globalXmlParser.attr(elem, "numPicBulletId")),
+             src: globalXmlParser.attr(imagedata, "id"),
+             style: globalXmlParser.attr(shape, "style")
+         } : null;
+     }
+     parseAbstractNumbering(node, bullets) {
+         var result = [];
+-        var id = globalXmlParser.attr(node, "abstractNumId");
++        var id = parseDecimal(globalXmlParser.attr(node, "abstractNumId"));
++        if (id == null)
++            return result;
+         for (const n of globalXmlParser.elements(node)) {
+             switch (n.localName) {
+                 case "lvl":
+@@ -1703,7 +1725,7 @@
+     parseNumberingLevel(id, node, bullets) {
+         var result = {
+             id: id,
+-            level: globalXmlParser.intAttr(node, "ilvl"),
++            level: parseDecimal(globalXmlParser.attr(node, "ilvl"), 0, 8),
+             start: 1,
+             pStyleName: undefined,
+             pStyle: {},
+@@ -1713,7 +1735,7 @@
+         for (const n of globalXmlParser.elements(node)) {
+             switch (n.localName) {
+                 case "start":
+-                    result.start = globalXmlParser.intAttr(n, "val");
++                    result.start = parseDecimal(globalXmlParser.attr(n, "val"), -2147483648) ?? 1;
+                     break;
+                 case "pPr":
+                     this.parseDefaultProperties(n, result.pStyle);
+@@ -1722,8 +1744,8 @@
+                     this.parseDefaultProperties(n, result.rStyle);
+                     break;
+                 case "lvlPicBulletId":
+-                    var bulletId = globalXmlParser.intAttr(n, "val");
+-                    result.bullet = bullets.find(x => x?.id == bulletId);
++                    var bulletId = parseDecimal(globalXmlParser.attr(n, "val"));
++                    result.bullet = bulletId == null ? null : bullets.find(x => x?.id === bulletId);
+                     break;
+                 case "lvlText":
+                     result.levelText = globalXmlParser.attr(n, "val");
+@@ -1748,12 +1770,14 @@
      parseInserted(node, parentParser) {
          return {
              type: DomType.Inserted,
@@ -313,7 +1025,7 @@ index 2691670..a209337 100644
              children: parentParser(node)?.children ?? []
          };
      }
-@@ -1866,6 +1873,8 @@ class DocumentParser {
+@@ -1866,6 +1890,8 @@
          var result = { type: DomType.Run, parent: parent, children: [] };
          for (let c of globalXmlParser.elements(node)) {
              c = this.checkAlternateContent(c);
@@ -322,7 +1034,7 @@ index 2691670..a209337 100644
              switch (c.localName) {
                  case "t":
                      result.children.push({
-@@ -2116,15 +2125,112 @@ class DocumentParser {
+@@ -2116,14 +2142,111 @@
          return result;
      }
      parseGraphic(elem) {
@@ -414,7 +1126,7 @@ index 2691670..a209337 100644
 +                };
          }
          return null;
-     }
++    }
 +    parseWsp(elem) {
 +        var txbx = globalXmlParser.element(elem, "txbx");
 +        var txbxContent = txbx && globalXmlParser.element(txbx, "txbxContent");
@@ -437,11 +1149,105 @@ index 2691670..a209337 100644
 +            result.children = this.parseBodyElements(txbxContent);
 +        }
 +        return result;
-+    }
+     }
      parsePicture(elem) {
          var result = { type: DomType.Image, src: "", cssStyle: {} };
-         var blipFill = globalXmlParser.element(elem, "blipFill");
-@@ -3130,6 +3236,12 @@ class HtmlRenderer {
+@@ -2522,7 +2645,7 @@
+         var ascii = globalXmlParser.attr(node, "ascii");
+         var asciiTheme = values.themeValue(node, "asciiTheme");
+         var eastAsia = globalXmlParser.attr(node, "eastAsia");
+-        var fonts = [ascii, asciiTheme, eastAsia].filter(x => x).map(x => encloseFontFamily(x));
++        var fonts = [ascii && encloseFontFamily(ascii), asciiTheme, eastAsia && encloseFontFamily(eastAsia)].filter(x => x);
+         if (fonts.length > 0)
+             style["font-family"] = [...new Set(fonts)].join(', ');
+     }
+@@ -2626,16 +2749,16 @@
+             else if (knownColors.includes(v)) {
+                 return v;
+             }
+-            return `#${v}`;
++            return /^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v) ? "#" + v : defValue;
+         }
+         var themeColor = globalXmlParser.attr(node, "themeColor");
+-        return themeColor ? `var(--docx-${themeColor}-color)` : defValue;
++        return themeColor && /^[a-z][a-z0-9]*$/i.test(themeColor) ? "var(--docx-" + themeColor + "-color)" : defValue;
+     }
+ }
+ class values {
+     static themeValue(c, attr) {
+         var val = globalXmlParser.attr(c, attr);
+-        return val ? `var(--docx-${val}-font)` : null;
++        return val && /^[a-z][a-z0-9]*$/i.test(val) ? "var(--docx-" + val + "-font)" : null;
+     }
+     static valueOfSize(c, attr) {
+         var type = LengthUsage.Dxa;
+@@ -2798,7 +2921,7 @@
+         return;
+     let width = 1;
+     if (tab.style == "right" || tab.style == "center") {
+-        const tabStops = Array.from(p.querySelectorAll(`.${elem.className}`));
++        const tabStops = Array.from(p.querySelectorAll(`.${CSS.escape(elem.className)}`));
+         const nextIdx = tabStops.indexOf(elem) + 1;
+         const range = document.createRange();
+         range.setStart(elem, 1);
+@@ -2862,8 +2985,8 @@
+     async render(document, bodyContainer, styleContainer = null, options) {
+         this.document = document;
+         this.options = options;
+-        this.className = options.className;
+-        this.rootSelector = options.inWrapper ? `.${this.className}-wrapper` : ':root';
++        this.className = escapeClassName(options.className);
++        this.rootSelector = options.inWrapper ? `.${CSS.escape(this.className + '-wrapper')}` : ':root';
+         this.styleMap = null;
+         this.tasks = [];
+         if (this.options.renderComments && globalThis.Highlight) {
+@@ -2915,22 +3038,26 @@
+     }
+     renderTheme(themePart, styleContainer) {
+         const variables = {};
++        // Literal typefaces are quoted; only validated theme references stay CSS variables.
++        const themeFont = (value) => typeof value === "string" && value.trim() ? encloseFontFamily(value) : null;
+         const fontScheme = themePart.theme?.fontScheme;
+         if (fontScheme) {
+-            if (fontScheme.majorFont) {
+-                variables['--docx-majorHAnsi-font'] = fontScheme.majorFont.latinTypeface;
+-            }
+-            if (fontScheme.minorFont) {
+-                variables['--docx-minorHAnsi-font'] = fontScheme.minorFont.latinTypeface;
+-            }
++            const major = themeFont(fontScheme.majorFont?.latinTypeface);
++            const minor = themeFont(fontScheme.minorFont?.latinTypeface);
++            if (major)
++                variables["--docx-majorHAnsi-font"] = major;
++            if (minor)
++                variables["--docx-minorHAnsi-font"] = minor;
+         }
+         const colorScheme = themePart.theme?.colorScheme;
+         if (colorScheme) {
+             for (let [k, v] of Object.entries(colorScheme.colors)) {
+-                variables[`--docx-${k}-color`] = `#${v}`;
+-            }
+-        }
+-        const cssText = this.styleToString(`.${this.className}`, variables);
++                // DrawingML srgbClr/lastClr are exactly six hexadecimal digits.
++                if (/^[a-z][a-z0-9]*$/i.test(k) && typeof v === "string" && /^[0-9a-f]{6}$/i.test(v))
++                    variables["--docx-" + k + "-color"] = "#" + v;
++            }
++        }
++        const cssText = this.styleToString("." + CSS.escape(this.className), variables);
+         styleContainer.appendChild(this.createStyleElement(cssText));
+     }
+     renderFontTable(fontsPart, styleContainer) {
+@@ -2939,7 +3066,7 @@
+                 this.tasks.push(this.document.loadFont(ref.id, ref.key).then(fontData => {
+                     const cssValues = {
+                         'font-family': encloseFontFamily(f.name),
+-                        'src': `url(${fontData})`
++                        'src': `url(${encloseFontFamily(fontData)})`
+                     };
+                     if (ref.type == "bold" || ref.type == "boldItalic") {
+                         cssValues['font-weight'] = 'bold';
+@@ -3130,6 +3257,12 @@
              || prev.pageSize?.width != next.pageSize?.width
              || prev.pageSize?.height != next.pageSize?.height;
      }
@@ -454,7 +1260,7 @@ index 2691670..a209337 100644
      splitBySection(elements, defaultProps) {
          var current = { sectProps: null, elements: [], pageBreak: false };
          var result = [current];
-@@ -3155,6 +3267,15 @@ class HtmlRenderer {
+@@ -3155,6 +3288,15 @@
                          return rBreakIndex != -1;
                      });
                  }
@@ -470,7 +1276,7 @@ index 2691670..a209337 100644
                  if (sectProps || pBreakIndex != -1) {
                      current.sectProps = sectProps;
                      current.pageBreak = pBreakIndex != -1;
-@@ -3166,8 +3287,9 @@ class HtmlRenderer {
+@@ -3166,8 +3308,9 @@
                      let splitRun = rBreakIndex < breakRun.children.length - 1;
                      if (pBreakIndex < p.children.length - 1 || splitRun) {
                          var children = elem.children;
@@ -481,7 +1287,7 @@ index 2691670..a209337 100644
                          current.elements.push(newParagraph);
                          if (splitRun) {
                              let runChildren = breakRun.children;
-@@ -3190,13 +3312,20 @@ class HtmlRenderer {
+@@ -3190,13 +3333,20 @@
          }
          return result;
      }
@@ -504,10 +1310,72 @@ index 2691670..a209337 100644
                  result.push(current = []);
              prev = s.sectProps;
          }
-@@ -3455,6 +3584,14 @@ section.${c}>footer { z-index: 1; }
-         if (numbering) {
-             result.classList.add(this.numberingClass(numbering.id, numbering.level));
+@@ -3206,7 +3356,7 @@
+         return this.createElement("div", { className: `${this.className}-wrapper` }, children);
+     }
+     renderDefaultStyle() {
+-        var c = this.className;
++        var c = CSS.escape(this.className);
+         var wrapperStyle = `
+ .${c}-wrapper { background: gray; padding: 30px; padding-bottom: 0px; display: flex; flex-flow: column; align-items: center; } 
+ .${c}-wrapper>section.${c} { background: white; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); margin-bottom: 30px; }`;
+@@ -3239,25 +3389,28 @@
+         var styleText = "";
+         var resetCounters = [];
+         for (var num of numberings) {
+-            var selector = `p.${this.numberingClass(num.id, num.level)}`;
++            const className = this.numberingClass(num.id, num.level);
++            if (className == null)
++                continue;
++            var selector = `p.${CSS.escape(className)}`;
+             var listStyleType = "none";
+             if (num.bullet) {
+-                let valiable = `--${this.className}-${num.bullet.src}`.toLowerCase();
++                let valiable = `--docx-bullet-${parseDecimal(num.id)}-${parseDecimal(num.level, 0, 8)}`;
+                 styleText += this.styleToString(`${selector}:before`, {
+                     "content": "' '",
+                     "display": "inline-block",
+                     "background": `var(${valiable})`
+                 }, num.bullet.style);
+                 this.tasks.push(this.document.loadNumberingImage(num.bullet.src).then(data => {
+-                    var text = `${this.rootSelector} { ${valiable}: url(${data}) }`;
++                    var text = this.styleToString(this.rootSelector, { [valiable]: `url(${encloseFontFamily(data)})` });
+                     styleContainer.appendChild(this.createStyleElement(text));
+                 }));
+             }
+             else if (num.levelText) {
+                 let counter = this.numberingCounter(num.id, num.level);
+-                const counterReset = counter + " " + (num.start - 1);
++                const counterReset = counter + " " + ((parseDecimal(num.start, -2147483648) ?? 1) - 1);
+                 if (num.level > 0) {
+-                    styleText += this.styleToString(`p.${this.numberingClass(num.id, num.level - 1)}`, {
++                    styleText += this.styleToString(`p.${CSS.escape(this.numberingClass(num.id, num.level - 1))}`, {
+                         "counter-set": counterReset
+                     });
+                 }
+@@ -3299,11 +3452,11 @@
+                     console.warn(`Can't find linked style ${style.linked}`);
+             }
+             for (const subStyle of subStyles) {
+-                var selector = `${style.target ?? ''}.${style.cssName}`;
++                var selector = `${style.target ?? ''}.${CSS.escape(style.cssName)}`;
+                 if (style.target != subStyle.target)
+                     selector += ` ${subStyle.target}`;
+                 if (defautStyles[style.target] == style)
+-                    selector = `.${this.className} ${style.target}, ` + selector;
++                    selector = `.${CSS.escape(this.className)} ${style.target}, ` + selector;
+                 styleText += this.styleToString(selector, subStyle.values);
+             }
          }
+@@ -3453,7 +3606,17 @@
+         this.renderCommonProperties(result.style, elem);
+         const numbering = elem.numbering ?? style?.paragraphProps?.numbering;
+         if (numbering) {
+-            result.classList.add(this.numberingClass(numbering.id, numbering.level));
++            const className = this.numberingClass(numbering.id, numbering.level);
++            if (className != null)
++                result.classList.add(className);
++        }
 +        if (elem.continuation) {
 +            result.classList.add(`${this.className}-continuation`);
 +            result.style.textIndent = "0";
@@ -515,11 +1383,10 @@ index 2691670..a209337 100644
 +        }
 +        if (elem.continued) {
 +            result.style.marginBottom = "0";
-+        }
+         }
          return result;
      }
-     renderRunProperties(style, props) {
-@@ -3513,6 +3650,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3513,6 +3676,7 @@
              return null;
          const frg = new DocumentFragment();
          const commentRefEl = this.createElement("span", { className: `${this.className}-comment-ref` }, ['💬']);
@@ -527,7 +1394,7 @@ index 2691670..a209337 100644
          const commentsContainerEl = this.createElement("div", { className: `${this.className}-comment-popover` });
          this.renderCommentContent(comment, commentsContainerEl);
          frg.appendChild(this.createComment(`comment #${comment.id} by ${comment.author} on ${comment.date}`));
-@@ -3524,6 +3662,7 @@ section.${c}>footer { z-index: 1; }
+@@ -3524,6 +3688,7 @@
          if (!this.options.renderAltChunks)
              return null;
          var result = this.createElement("iframe");
@@ -535,19 +1402,19 @@ index 2691670..a209337 100644
          this.tasks.push(this.document.loadAltChunk(elem.id, this.currentPart).then(x => {
              result.srcdoc = x;
          }));
-@@ -3575,12 +3714,17 @@ section.${c}>footer { z-index: 1; }
+@@ -3575,18 +3740,25 @@
      }
      renderInserted(elem) {
          if (this.options.renderChanges)
 -            return this.renderContainer(elem, "ins");
 +            return this.markRevision(this.renderContainer(elem, "ins"), elem);
          return this.renderElements(elem.children);
-     }
++    }
 +    markRevision(element, elem) {
 +        if (elem.id != null)
 +            element.setAttribute("data-revision-id", elem.id);
 +        return element;
-+    }
+     }
      renderDeleted(elem) {
          if (this.options.renderChanges)
 -            return this.renderContainer(elem, "del");
@@ -555,7 +1422,16 @@ index 2691670..a209337 100644
          return null;
      }
      renderSymbol(elem) {
-@@ -3699,8 +3843,10 @@ section.${c}>footer { z-index: 1; }
+         var span = this.createElement("span");
+         span.style.fontFamily = elem.font;
+-        span.innerHTML = `&#x${elem.char};`;
++        const parsed = /^[0-9a-f]{1,6}$/i.test(elem.char) ? Number.parseInt(elem.char, 16) : 0xfffd;
++        const codePoint = parsed <= 0x10ffff && !(parsed >= 0xd800 && parsed <= 0xdfff) ? parsed : 0xfffd;
++        span.textContent = String.fromCodePoint(codePoint);
+         return span;
+     }
+     renderFootnoteReference(elem) {
+@@ -3699,8 +3871,10 @@
          return result;
      }
      renderVmlPicture(elem) {
@@ -568,3 +1444,95 @@ index 2691670..a209337 100644
      renderVmlElement(elem) {
          var container = this.createSvgElement("svg");
          container.setAttribute("style", elem.cssStyleText);
+@@ -3837,35 +4011,53 @@
+         return styleName && this.styleMap?.[styleName];
+     }
+     numberingClass(id, lvl) {
+-        return `${this.className}-num-${id}-${lvl}`;
++        const safeId = parseDecimal(id);
++        const safeLevel = parseDecimal(lvl, 0, 8);
++        return safeId != null && safeLevel != null ? `${this.className}-num-${safeId}-${safeLevel}` : null;
+     }
+     tabStopClass() {
+         return `${this.className}-tab-stop`;
+     }
+     styleToString(selectors, values, cssText = null) {
+-        let result = `${selectors} {\r\n`;
++        // Font-face descriptors (notably src) are not ordinary element properties.
++        const sheet = selectors === "@font-face" ? new CSSStyleSheet() : null;
++        if (sheet)
++            sheet.insertRule("@font-face {}");
++        const declarations = sheet ? sheet.cssRules[0].style : this.htmlDocument.createElement("span").style;
+         for (const key in values) {
+-            if (key.startsWith('$'))
+-                continue;
+-            result += `  ${key}: ${values[key]};\r\n`;
+-        }
+-        if (cssText)
+-            result += cssText;
+-        return result + "}\r\n";
++            if (!key.startsWith('$') && values[key] != null)
++                declarations.setProperty(key, String(values[key]));
++        }
++        if (cssText) {
++            // VML picture bullets carry a declaration list, not a stylesheet.
++            const extra = this.htmlDocument.createElement("span").style;
++            extra.cssText = cssText;
++            for (const key of extra)
++                declarations.setProperty(key, extra.getPropertyValue(key), extra.getPropertyPriority(key));
++        }
++        const serialized = declarations.cssText.replace(/[<>]/g, c => "\\" + c.charCodeAt(0).toString(16) + " ");
++        return `${selectors} {\r\n  ${serialized}\r\n}\r\n`;
+     }
+     numberingCounter(id, lvl) {
+-        return `${this.className}-num-${id}-${lvl}`;
++        const className = this.numberingClass(id, lvl);
++        return className == null ? null : CSS.escape(className);
+     }
+     levelTextToContent(text, suff, id, numformat) {
+-        const suffMap = {
+-            "tab": "\\9",
+-            "space": "\\a0",
+-        };
+-        var result = text.replace(/%\d*/g, s => {
+-            let lvl = parseInt(s.substring(1), 10) - 1;
+-            return `"counter(${this.numberingCounter(id, lvl)}, ${numformat})"`;
+-        });
+-        return `"${result}${suffMap[suff] ?? ""}"`;
++        const suffMap = { tab: "\\9", space: "\\a0" };
++        const safeNumformat = /^[a-z][a-z0-9-]*$/i.test(numformat) ? numformat : "decimal";
++        const escapeCssText = (value) => value.replace(/[\u0000-\u001f\u007f\\"<>]/g, (character) => "\\" + character.charCodeAt(0).toString(16) + " ");
++        let result = "";
++        let cursor = 0;
++        for (const match of text.matchAll(/%([1-9]\d*)/g)) {
++            const index = match.index ?? 0;
++            result += escapeCssText(text.slice(cursor, index));
++            const level = Number.parseInt(match[1] ?? "", 10) - 1;
++            const counter = this.numberingCounter(id, level);
++            result += counter == null ? escapeCssText(match[0]) : "\"counter(" + counter + ", " + safeNumformat + ")\"";
++            cursor = index + match[0].length;
++        }
++        result += escapeCssText(text.slice(cursor));
++        return '"' + result + (suffMap[suff] ?? "") + '"';
+     }
+     numFormatToCssValue(format) {
+         var mapping = {
+@@ -3904,7 +4096,8 @@
+             taiwaneseCountingThousand: "cjk-ideographic",
+             taiwaneseDigital: "cjk-decimal",
+         };
+-        return mapping[format] ?? format;
++        return Object.prototype.hasOwnProperty.call(mapping, format) ? mapping[format]
++                    : typeof format === "string" && /^[a-z][a-z0-9-]*$/i.test(format) ? format : "decimal";
+     }
+     refreshTabStops() {
+         if (!this.options.experimental)
+@@ -3929,7 +4122,7 @@
+         return this.createElementNS(ns.svg, tagName, props, children);
+     }
+     createStyleElement(cssText) {
+-        return this.createElement("style", { innerHTML: cssText });
++        return this.createElement("style", { textContent: cssText });
+     }
+     createComment(text) {
+         return this.htmlDocument.createComment(text);

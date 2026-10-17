@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { describe, it } from 'mocha';
+import JSZip from 'jszip';
+import { DOMParser } from '@xmldom/xmldom';
 import {
   countWords,
   readDocumentProperties,
@@ -9,6 +11,7 @@ import {
   describeDocument,
   freeName,
   imageName,
+  isValidImageBytes,
   pageCount,
   readTag,
   readingMinutes,
@@ -50,7 +53,6 @@ describe('What a document says about itself', () => {
     });
   });
 });
-
 describe('Reading a single XML tag', () => {
   it('reads the text of the element', () => {
     assert.equal(readTag('<a><dc:title>Report</dc:title></a>', 'dc:title'), 'Report');
@@ -103,6 +105,142 @@ describe('Images stored in a document', () => {
 
   it('finds none in a document that has none', async () => {
     assert.deepEqual(await readMedia(await fixture('simple.docx')), []);
+  });
+
+  async function mediaPackage(files: Record<string, string | Uint8Array>): Promise<Uint8Array> {
+    const zip = await JSZip.loadAsync(await fixture('empty.docx'));
+    for (const [name, bytes] of Object.entries(files)) {zip.file(`word/media/${name}`, bytes);}
+    return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+  }
+
+  const svgNamespace = 'http://www.w3.org/2000/svg';
+  const xlinkNamespace = 'http://www.w3.org/1999/xlink';
+  const svg = (content: string): string => `<svg xmlns="${svgNamespace}" xmlns:l="${xlinkNamespace}">${content}</svg>`;
+
+  async function exportedSvg(content: string) {
+    const media = await readMedia(await mediaPackage({ 'image.svg': svg(content) }));
+    assert.equal(media.length, 1);
+    return new DOMParser().parseFromString(new TextDecoder().decode(media[0]?.bytes), 'image/svg+xml');
+  }
+
+  it('checks reference namespace/local names rather than trusting the xlink prefix', async () => {
+    const document = await exportedSvg(
+      '<a l:href="javascript:alert(1)"><text>click</text></a>'
+      + '<image l:href="https://attacker.invalid/image.png"/>'
+      + '<use l:href="//attacker.invalid/external.svg#x"/>'
+      + '<use l:href="&#x6a;avascript:alert(2)"/>'
+      + '<image href="file:///private/image.png"/>'
+      + '<a href="data:text/html;base64,PHNjcmlwdD4="/>',
+    );
+    for (const element of Array.from(document.getElementsByTagName('*'))) {
+      assert.equal(element.hasAttribute('href'), false);
+      assert.equal(element.hasAttributeNS(xlinkNamespace, 'href'), false);
+    }
+  });
+
+  it('removes foreign namespaces, scripts, events, base URLs and encoded CSS', async () => {
+    const document = await exportedSvg(
+      '<script>alert(1)</script><foreignObject><p xmlns="http://www.w3.org/1999/xhtml">bad</p></foreignObject>'
+      + '<g xmlns="http://www.w3.org/1999/xhtml"><script>foreign</script><a href="javascript:alert(2)">bad</a></g>'
+      + '<g xmlns="urn:foreign"><rect width="5"/></g>'
+      + '<g xmlns=""><text>not SVG</text></g>'
+      + '<animate attributeName="href" to="javascript:alert(3)"/>'
+      + '<style>@import url(https://attacker.invalid/a.css)</style>'
+      + '<rect onload="alert(4)" xmlns:b="http://www.w3.org/XML/1998/namespace" b:base="https://attacker.invalid/"/>'
+      + '<rect style="fill:u&#x72;l(https://attacker.invalid/a)"/>'
+      + String.raw`<rect style="fill:\75rl(https://attacker.invalid/b)"/>`
+      + '<rect fill="url(https://attacker.invalid/c)"/>'
+      + '<rect style="fill:u/**/rl(https://attacker.invalid/d)"/>'
+      + '<rect xmlns:f="urn:foreign" f:href="javascript:alert(5)" f:onload="alert(6)"/>',
+    );
+    for (const element of Array.from(document.getElementsByTagName('*'))) {
+      assert.equal(element.namespaceURI, svgNamespace);
+      assert.ok(!['script', 'foreignObject', 'animate', 'style'].includes(element.localName));
+      for (const attribute of Array.from(element.attributes)) {
+        assert.ok(!/onload|base|style|href/.test(attribute.localName));
+        assert.ok(!/attacker|javascript|url\(/i.test(attribute.value));
+      }
+    }
+  });
+
+  it('preserves static SVG geometry, local references and real embedded raster images', async () => {
+    const images = await readMedia(await fixture('with-images.docx'));
+    const png = Buffer.from(images[0]?.bytes ?? []).toString('base64');
+    const document = await exportedSvg(
+      '<defs><linearGradient id="paint"><stop offset="0" stop-color="red"/></linearGradient>'
+      + '<path id="shape" d="M0 0 L5 5"/></defs>'
+      + '<use l:href="#shape" fill="url(#paint)"/>'
+      + '<rect width="5" height="7" style="fill:url(#paint);stroke:blue;stroke-width:2"/>'
+      + `<image l:href="data:image/png;base64,${png}"/>`,
+    );
+    assert.equal(document.getElementsByTagName('use').item(0)?.getAttributeNS(xlinkNamespace, 'href'), '#shape');
+    assert.equal(document.getElementsByTagName('use').item(0)?.getAttribute('fill'), 'url(#paint)');
+    assert.equal(document.getElementsByTagName('rect').item(0)?.getAttribute('width'), '5');
+    assert.match(document.getElementsByTagName('rect').item(0)?.getAttribute('style') ?? '', /stroke:blue/);
+    assert.equal(document.getElementsByTagName('image').item(0)?.getAttributeNS(xlinkNamespace, 'href'), `data:image/png;base64,${png}`);
+  });
+
+  it('does not accept an SVG payload disguised as a raster data URL', async () => {
+    const payload = Buffer.from(svg('<script>alert(1)</script>')).toString('base64');
+    const document = await exportedSvg(`<image l:href="data:image/png;base64,${payload}"/>`);
+    assert.equal(document.getElementsByTagName('image').item(0)?.hasAttributeNS(xlinkNamespace, 'href'), false);
+  });
+
+  it('skips each malformed SVG independently and continues exporting good media', async () => {
+    const images = await readMedia(await fixture('with-images.docx'));
+    const goodPng = images[0]?.bytes;
+    assert.ok(goodPng);
+    const media = await readMedia(await mediaPackage({
+      'a-comment.svg': '<!-- <svg -->',
+      'b-unclosed.svg': `<svg xmlns="${svgNamespace}"><path></svg>`,
+      'c-foreign.svg': '<svg xmlns="http://www.w3.org/1999/xhtml"><script>bad</script></svg>',
+      'd-doctype.svg': `<!DOCTYPE svg [<!ENTITY x "bad">]>${svg('<text>&x;</text>')}`,
+      'e-stylesheet.svg': `<?xml-stylesheet href="https://attacker.invalid/x.css"?>${svg('<rect/>')}`,
+      'f-encoding.svg': new Uint8Array([0xff, 0xfe, 0xff]),
+      'z-valid.png': goodPng,
+    }));
+    assert.deepEqual(media.map((entry) => entry.name), ['word/media/z-valid.png']);
+  });
+
+  it('matches media extensions to content signatures, including SVG-in-PNG bypasses', async () => {
+    const images = await readMedia(await fixture('with-images.docx'));
+    const png = images[0]?.bytes;
+    assert.ok(png);
+    const media = await readMedia(await mediaPackage({
+      'a-svg.png': svg('<script>alert(1)</script>'),
+      'b-svg.jpg': svg('<rect/>'),
+      'c-png.svg': png,
+      'd-png.gif': png,
+      'e-short.png': new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      'z-valid.PNG': png,
+    }));
+    assert.deepEqual(media.map((entry) => entry.name), ['word/media/z-valid.PNG']);
+    assert.equal(isValidImageBytes(png), true);
+    assert.equal(isValidImageBytes(new TextEncoder().encode('<!-- <svg -->')), false);
+  });
+
+  it('accepts JPEG/TIFF aliases and the other supported raster signatures', async () => {
+    const files = {
+      'a.jpeg': new Uint8Array([0xff, 0xd8, 0xff, 0xe0]),
+      'b.tiff': new Uint8Array([0x49, 0x49, 0x2a, 0x00]),
+      'c.gif': new TextEncoder().encode('GIF89a'),
+      'd.webp': new TextEncoder().encode('RIFF0000WEBP'),
+      'e.bmp': new Uint8Array([0x42, 0x4d, ...new Array<number>(12).fill(0)]),
+    };
+    const media = await readMedia(await mediaPackage(files));
+    assert.equal(media.length, Object.keys(files).length);
+  });
+
+  it('keeps valid EMF and WMF media available for extraction', async () => {
+    const emf = Buffer.alloc(50);
+    emf.writeUInt32LE(1, 0);
+    emf.write(' EMF', 40, 'latin1');
+    const wmf = Buffer.from([0xd7, 0xcd, 0xc6, 0x9a, 0x00, 0x00]);
+    const media = await readMedia(await mediaPackage({ 'diagram.emf': emf, 'drawing.wmf': wmf }));
+    assert.deepEqual(media.map((entry) => entry.name), [
+      'word/media/diagram.emf',
+      'word/media/drawing.wmf',
+    ]);
   });
 
   it('names an extracted file after the document it came from', () => {
@@ -203,5 +341,31 @@ describe('Listing the properties for a reader', () => {
     // Still what the document says, which beats dropping the field.
     assert.equal(formatDate('sometime last spring'), 'sometime last spring');
     assert.equal(formatDate(undefined), undefined);
+  });
+});
+
+describe('Image extraction safety and formats', () => {
+  it('recognizes EMF and WMF image bytes', () => {
+    const emf = Buffer.alloc(50);
+    emf.writeUInt32LE(1, 0); // iType = 1
+    emf.write(' EMF', 40, 'latin1'); // dSignature = " EMF"
+    assert.equal(isValidImageBytes(emf), true);
+
+    const wmfApm = Buffer.from([0xd7, 0xcd, 0xc6, 0x9a, 0x00, 0x00]);
+    assert.equal(isValidImageBytes(wmfApm), true);
+
+    const wmfStandard = Buffer.from([0x01, 0x00, 0x09, 0x00, 0x00, 0x03]);
+    assert.equal(isValidImageBytes(wmfStandard), true);
+  });
+
+  it('preserves Unicode and spaces in base document name while sanitizing illegal characters', () => {
+    assert.equal(
+      imageName('Rapor Şubat 2026', 0, 1, 'word/media/image1.png'),
+      'Rapor Şubat 2026-1.png',
+    );
+    assert.equal(
+      imageName('Invalid/File:Name*?<>|', 0, 1, 'word/media/image1.png'),
+      'Invalid_File_Name_____-1.png',
+    );
   });
 });

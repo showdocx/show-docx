@@ -89,9 +89,9 @@ The API that would put these results in VS Code's own search panel is still prop
 
 Comparing revisions inside the editor is one problem; `git diff` in a terminal and a pull request on GitHub are another, and both see a Word document as `Binary files differ`. **ShowDocx: Write Markdown Mirrors** writes a `.md` copy of each document, meant to be committed alongside it, so those tools can read what changed.
 
-ShowDocx **never creates a mirror on its own.** Creating them is the command above, which says how many and where before writing anything. Setting `showDocx.markdownMirror` to `onChange` keeps mirrors that already exist up to date when their documents change; it will not add new files. `showDocx.markdownMirrorDirectory` puts them somewhere other than beside the document, inside the workspace folder.
+ShowDocx **never creates a mirror on its own.** Creating them is the command above, which says how many and where before writing anything. Setting `showDocx.markdownMirror` to `onChange` keeps mirrors that already exist up to date when their documents change, including unopened documents in the workspace after startup; it will not add new files. `showDocx.markdownMirrorDirectory` puts them somewhere other than beside the document, inside the workspace folder.
 
-Each mirror opens with a comment naming the document it came from, so nobody meeting one in a review has to guess — and ShowDocx only ever replaces a file that opens with that comment. A hand-written `guide.md` beside `guide.docx` is left alone, and two documents whose mirrors would share a name are both skipped rather than overwriting each other. An empty `.md` file counts as a request for a mirror. In a restricted workspace mirrors are not refreshed, and the workspace's own mirror and export settings are ignored.
+Each mirror opens with a comment naming the document it came from, so nobody meeting one in a review has to guess — and ShowDocx only ever replaces a file that opens with that comment. A hand-written `guide.md` beside `guide.docx` is left alone, and two documents whose mirrors would share a name are both skipped rather than overwriting each other. An empty `.md` file counts as a request for a mirror. Unreadable targets are skipped rather than treated as missing, and ownership and path containment are checked again just before writing. Local symbolic links must resolve inside the workspace folder (or the document's parent folder outside a workspace); virtual/remote providers are accessed only through VS Code's filesystem API, and paths exposing symbolic links are refused there. In a restricted workspace mirrors are not refreshed, and the workspace's own mirror and export settings are ignored.
 
 ### Comparing revisions
 
@@ -152,6 +152,11 @@ Like the tool above, the chat API is newer than the supported floor, so the part
 | `showDocx.maxFileSizeMb` | `100` | Maximum file size accepted by the viewer |
 | `showDocx.autoReload` | `true` | Reload when the DOCX changes on disk |
 
+To keep malformed or hostile documents from exhausting memory, converted text is
+limited to 4 MiB. Tables are limited to 10,000 rows, 1,000 columns, and 100,000
+rendered cells; tracked-change metadata is limited to 10,000 revisions and 1 MiB
+of text. ShowDocx marks any truncated result with a safety-limit notice.
+
 ## Installation
 
 Install [ShowDocx from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=showdocx.show-docx), search for `ShowDocx` in the VS Code Extensions view, or run:
@@ -160,11 +165,11 @@ Install [ShowDocx from the Visual Studio Marketplace](https://marketplace.visual
 code --install-extension showdocx.show-docx
 ```
 
-For manual or offline installation, download `show-docx-1.1.1.vsix` from the
+For manual or offline installation, download `show-docx-1.2.2.vsix` from the
 [latest GitHub release](https://github.com/showdocx/show-docx/releases/latest), then run:
 
 ```bash
-code --install-extension show-docx-1.1.1.vsix
+code --install-extension show-docx-1.2.2.vsix
 ```
 
 You can also use **Extensions: Install from VSIX...** from the VS Code Command Palette.

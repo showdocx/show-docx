@@ -11,7 +11,7 @@ describe('Document export formatting', () => {
   it('escapes special HTML characters in document titles', () => {
     assert.equal(
       escapeHtml('Sample <Document> & "Test" \'File\''),
-      'Sample &lt;Document&gt; &amp; &quot;Test&quot; &#039;File&#039;',
+      'Sample \x26lt;Document\x26gt; \x26amp; \x26quot;Test\x26quot; \x26#039;File\x26#039;',
     );
   });
 
@@ -25,7 +25,12 @@ describe('Document export formatting', () => {
   it('escapes the file name in the exported title', () => {
     const html = createExportDocument('<script>alert(1)</script>.docx', '');
     assert.ok(!html.includes('<script>'));
-    assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+    assert.ok(html.includes('\x26lt;script\x26gt;alert(1)\x26lt;/script\x26gt;'));
+  });
+
+  it('includes the Content-Security-Policy meta header in createExportDocument', () => {
+    const html = createExportDocument('report.docx', '');
+    assert.ok(html.includes('<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; font-src data:; style-src \'unsafe-inline\'; script-src \'none\'; form-action \'none\'; base-uri \'none\'; object-src \'none\';">'));
   });
 });
 
@@ -67,7 +72,7 @@ describe('Printable document formatting', () => {
   it('escapes the file name in the printable title', () => {
     const html = createPrintDocument('<script>alert(1)</script>.docx', '', '');
     assert.ok(!html.includes('<script>alert(1)'));
-    assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+    assert.ok(html.includes('\x26lt;script\x26gt;alert(1)\x26lt;/script\x26gt;'));
   });
 
   it('keeps a document style name from closing the style element', () => {
@@ -76,6 +81,11 @@ describe('Printable document formatting', () => {
     const html = createPrintDocument('report.docx', hostile, body);
     assert.ok(!html.includes('</style><img'));
     assert.ok(html.includes('<\\/style>'));
+  });
+
+  it('includes the Content-Security-Policy meta header in createPrintDocument', () => {
+    const html = createPrintDocument('report.docx', '', '');
+    assert.ok(html.includes('<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; font-src data:; style-src \'unsafe-inline\'; script-src \'none\'; form-action \'none\'; base-uri \'none\'; object-src \'none\';">'));
   });
 });
 

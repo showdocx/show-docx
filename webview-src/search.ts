@@ -157,7 +157,12 @@ export class SearchController {
 
     // Folded rather than lowercased, and mapped back: lowercasing changes the
     // length of some letters (Turkish İ), which used to move every later match.
-    const found = findFolded(slices.map((slice) => slice.text).join(''), query, MAX_MATCHES);
+    let combinedText = '';
+    for (const slice of slices) {
+      combinedText += '\n'.repeat(slice.start - combinedText.length) + slice.text;
+    }
+
+    const found = findFolded(combinedText, query, MAX_MATCHES);
     this.truncated = found.truncated;
     const ranges = found.matches;
     if (ranges.length === 0) {
@@ -175,6 +180,7 @@ export class SearchController {
     // each keystroke.
     const groups: MatchGroup[] = ranges.map(() => []);
     let first = 0;
+
     for (const slice of slices) {
       const sliceEnd = slice.start + slice.text.length;
       const segments: Array<{ group: number; from: number; to: number }> = [];
@@ -290,19 +296,50 @@ function collectVisibleText(container: HTMLElement): TextSlice[] {
         if (tagName === 'script' || tagName === 'style' || tagName === 'noscript') {
           return NodeFilter.FILTER_REJECT;
         }
-        return isRendered(element) ? NodeFilter.FILTER_SKIP : NodeFilter.FILTER_REJECT;
+        if (!isRendered(element)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return tagName === 'br' ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
       },
     },
   );
 
   const slices: TextSlice[] = [];
   let offset = 0;
+  let currentBlock: HTMLElement | null = null;
+
   while (walker.nextNode()) {
+    if (walker.currentNode.nodeType === Node.ELEMENT_NODE) {
+      // Visible line breaks separate runs just as paragraph boundaries do.
+      offset += 1;
+      continue;
+    }
     const node = walker.currentNode as Text;
     const text = node.nodeValue ?? '';
     if (!text) {
       continue;
     }
+
+    // Find the block container (p, h1, h2, h3, h4, h5, h6, li, tr, div, blockquote, etc.)
+    let blockEl: HTMLElement | null = null;
+    let parent: HTMLElement | null = node.parentElement;
+    while (parent && parent !== container) {
+      const tag = parent.tagName.toLowerCase();
+      if (/^(p|h[1-6]|li|td|th|tr|div|blockquote|section|article)$/.test(tag)) {
+        blockEl = parent;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+    if (!blockEl) {
+      blockEl = container;
+    }
+
+    if (currentBlock !== null && currentBlock !== blockEl) {
+      offset += 1; // separator for block boundary
+    }
+    currentBlock = blockEl;
+
     slices.push({ node, start: offset, text });
     offset += text.length;
   }
