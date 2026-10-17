@@ -165,11 +165,11 @@ Install [ShowDocx from the Visual Studio Marketplace](https://marketplace.visual
 code --install-extension showdocx.show-docx
 ```
 
-For manual or offline installation, download `show-docx-1.2.2.vsix` from the
+For manual or offline installation, download `show-docx-1.2.3.vsix` from the
 [latest GitHub release](https://github.com/showdocx/show-docx/releases/latest), then run:
 
 ```bash
-code --install-extension show-docx-1.2.2.vsix
+code --install-extension show-docx-1.2.3.vsix
 ```
 
 You can also use **Extensions: Install from VSIX...** from the VS Code Command Palette.

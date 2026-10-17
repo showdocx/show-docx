@@ -2,6 +2,36 @@
 
 All notable changes to ShowDocx are documented in this file.
 
+## [1.2.3] - 2026-10-17
+
+### Security
+
+- **Streaming ZIP expansion and uncompressed size limits.** Unpacking a DOCX previously relied on JSZip reading whole files into memory, allowing a small crafted archive (ZIP bomb) to consume gigabytes of heap memory. ShowDocx now streams archive entries using `yauzl`, checking declared sizes and enforcing dynamic uncompressed size budgets before decompressing. Archives exceeding limits are rejected immediately.
+
+- **Print to PDF and HTML exports enforce a strict Content Security Policy.** Exported standalone HTML documents now include a restrictive CSP (`default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; script-src 'none'; form-action 'none'`). Document styles, numbering texts, and font family names are safely escaped against CSS and markup injection, external style URLs are stripped, and DOMPurify disallows form elements. Active search highlights are unwrapped prior to export.
+
+- **Hidden text is excluded from text conversions and model tools.** Word's hidden run properties (`w:vanish`, `w:specVanish`) were previously preserved in mammoth and plain text outputs even when hidden in Visual mode. Text extraction pipelines now resolve ECMA-376 style inheritance and filter hidden runs before conversion. The `@docx` chat participant and language model tools frame document contents with an explicit untrusted data boundary.
+
+- **Markdown mirrors enforce physical containment against symlink traversal.** Configured mirror directory paths are resolved to their canonical physical path, validating up to 40 symlink hops to prevent escaping the workspace boundary via external or dangling symbolic links.
+
+- **Media extraction validates image signatures and sanitizes filenames.** `word/media` package entries now undergo magic byte verification for supported raster formats (PNG, JPEG, GIF, WEBP, BMP, TIFF, EMF, WMF) and SVG sanitization. Extracted filenames are scrubbed of NTFS Alternate Data Streams (`:`) and filesystem-reserved characters. Hash collisions in image deduplication are disambiguated through byte-by-byte comparison.
+
+### Fixed
+
+- **Single-pass XML scanning replaces quadratic revision and structure parsing.** Scanning nested insertions and deletions previously exhibited quadratic O(n²) behavior on deeply nested structures. A dedicated forward scanner (`xmlScanner`) parses tags in a single pass with explicit depth and size limits, eliminating extension host freezes on large revision histories.
+
+- **Table dimensions and recursion are bounded against out-of-memory errors.** Unbounded `w:gridSpan` declarations previously pushed millions of empty cells, causing memory exhaustion and call stack overflows on large tables. Tables are now bounded to 10,000 rows, 1,000 columns, and 100,000 cells with safe iterative calculations.
+
+- **Markdown mirror `onChange` updates watch the workspace.** Mirrors are now refreshed across the entire workspace via a global file watcher even when documents are not active in an editor tab. Overlapping updates are serialized through a ticketed write queue to prevent race conditions.
+
+- **Visual rendering failure falls back transiently without persisting.** When Visual mode encounters an unrenderable element, the viewer falls back to Text mode transiently for the active session and displays an explanatory warning, without overwriting the user's saved Visual preference for future loads.
+
+- **Document search distinguishes paragraph and block boundaries.** In-webview text searches now insert separators at block element boundaries, preventing inadvertent matches across adjacent headings or paragraphs.
+
+- **Comments and revisions panel DOM lookups are indexed in O(1).** Comment and revision anchor elements are indexed once per render rather than queried per card, eliminating UI thread stalls on documents with thousands of annotations.
+
+- **Workspace search respects `files.exclude` and `search.exclude`.** File discovery merges user and standard exclusion settings (`node_modules`, `.git`, `.venv`, `vendor`), and the search text cache now avoids retaining oversized individual documents.
+
 ## [1.2.2] - 2026-10-15
 
 ### Security
