@@ -4,6 +4,7 @@ dist-test/
 playwright-report/
 test-results/
 *.vsix
+*.sha256
 *.log
 .DS_Store
 .vscode-test/
