@@ -412,7 +412,7 @@
     "@vscode/vsce": "^3.9.2",
     "docx": "^9.7.1",
     "esbuild": "^0.28.1",
-    "eslint": "^9.39.1",
+    "eslint": "^10.13.0",
     "mocha": "^11.3.0",
     "patch-package": "^8.0.1",
     "typescript": "^5.9.3"
