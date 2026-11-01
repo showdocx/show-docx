@@ -409,7 +409,7 @@
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.71.2",
     "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "^3.9.2",
+    "@vscode/vsce": "^4.1.0",
     "docx": "^9.7.1",
     "esbuild": "^0.28.1",
     "eslint": "^9.39.1",
