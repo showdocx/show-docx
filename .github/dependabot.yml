@@ -11,6 +11,8 @@ updates:
       # Allow 11.x patch/minor updates, but ignore semver-major until minimum VS Code engine is bumped.
       - dependency-name: "mocha"
         update-types: ["version-update:semver-major"]
+      # @types/vscode must not exceed engines.vscode (^1.85.0); vsce fails packaging otherwise.
+      - dependency-name: "@types/vscode"
   # The workflows pin every action to a commit, so a moved tag cannot change
   # what runs with write access. This keeps those pins current.
   - package-ecosystem: github-actions
